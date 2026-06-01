@@ -1,0 +1,22 @@
+[project]
+name = "KTrex"
+version = "0.1.69"
+description = "Interactive terminal-based directory structure builder"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "AK" }
+]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+ktrex = "ktrex.main:main"
+KTrex = "ktrex.main:main"
+
+[tool.setuptools.package-data]
+ktrex = ["presets/*.json"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
