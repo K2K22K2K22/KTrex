@@ -1,0 +1,27 @@
+{
+  "name": "ml_project",
+  "type": "dir",
+  "children": [
+    {
+      "name": "src",
+      "type": "dir",
+      "children": [
+        { "name": "model.py", "type": "file" },
+        { "name": "train.py", "type": "file" },
+        { "name": "dataset.py", "type": "file" }
+      ]
+    },
+    {
+      "name": "configs",
+      "type": "dir",
+      "children": [{ "name": "train.yaml", "type": "file" }]
+    },
+    {
+      "name": "notebooks",
+      "type": "dir",
+      "children": [{ "name": "experiments.ipynb", "type": "file" }]
+    },
+    { "name": "requirements.txt", "type": "file" },
+    { "name": "runs", "type": "dir" }
+  ]
+}
