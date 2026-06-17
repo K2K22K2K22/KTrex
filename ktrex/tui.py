@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 from . import state
-from .fs import create_dir, create_file, undo_last
+from .fs import InvalidName, create_dir, create_file, undo_last
 from .presets import load_preset
 from .render import render_tree
 from .tree import apply_tree, build_tree
@@ -193,14 +193,21 @@ def tui_main(stdscr):
             if action == "Create Directory":
                 name = prompt(stdscr, "Directory name: ")
                 if name:
-                    new_dir = create_dir(current, name)
+                    try:
+                        new_dir = create_dir(current, name)
+                    except InvalidName as e:
+                        notify(stdscr, f"Error: {e}")
+                        new_dir = None
                     if new_dir:
                         state.path_stack.append(new_dir)
 
             elif action == "Create File":
                 name = prompt(stdscr, "File name: ")
                 if name:
-                    create_file(current, name)
+                    try:
+                        create_file(current, name)
+                    except InvalidName as e:
+                        notify(stdscr, f"Error: {e}")
 
             elif action == "Undo":
                 undone = undo_last()
