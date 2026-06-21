@@ -10,12 +10,18 @@ authors = [
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
 [project.scripts]
 ktrex = "ktrex.main:main"
 KTrex = "ktrex.main:main"
 
 [tool.setuptools.package-data]
 ktrex = ["presets/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [build-system]
 requires = ["setuptools>=61"]

@@ -1,6 +1,8 @@
+import json
+
 import pytest
 
-from ktrex.tree import InvalidTree, apply_tree, validate_tree
+from ktrex.tree import InvalidTree, apply_tree, build_tree, validate_tree
 
 
 def dir_node(name, *children):
@@ -96,3 +98,29 @@ def test_apply_rolls_back_on_failure(project, monkeypatch):
         apply_tree(project, tree)
 
     assert list(project.iterdir()) == []
+
+
+def test_build_tree_is_serializable(project):
+    (project / "src").mkdir()
+    (project / "src" / "main.py").touch()
+    (project / "readme.md").touch()
+
+    tree = build_tree(project)
+
+    validate_tree(tree)
+    assert json.loads(json.dumps(tree)) == tree
+
+
+def test_build_tree_round_trip(project, tmp_path):
+    (project / "src").mkdir()
+    (project / "src" / "main.py").touch()
+    (project / "readme.md").touch()
+
+    tree = build_tree(project)
+    target = tmp_path / "copy"
+    target.mkdir()
+
+    apply_tree(target, tree)
+
+    assert (target / "src" / "main.py").is_file()
+    assert (target / "readme.md").is_file()
