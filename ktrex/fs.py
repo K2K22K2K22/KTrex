@@ -1,3 +1,18 @@
+"""Filesystem operations for KTrex.
+
+Every entry is created through this module so the undo history stays in
+sync with what is on disk. The contract is:
+
+- create_dir and create_file append the new path to the undo history and
+  never touch an existing path.
+- undo_last removes the most recent entry: a file always, a directory only
+  when it is empty. An empty history returns False without side effects.
+- remove_created drops an entry again. apply_tree uses it to roll back
+  everything a failed multi entry apply had created.
+- Names are single path segments and every target stays inside the project
+  root.
+"""
+
 from pathlib import Path
 
 from . import state
@@ -56,6 +71,7 @@ def create_file(base: Path, name: str) -> Path | None:
 
 
 def undo_last() -> bool:
+    """Undo the most recent creation. Files are removed, directories only when empty."""
     if not state.history:
         return False
 
