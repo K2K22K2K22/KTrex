@@ -9,13 +9,22 @@ class InvalidTree(ValueError):
     """Raised when a structure or preset is not a valid tree."""
 
 
-def build_tree(path: Path) -> dict:
-    # Convert filesystem into a serializable tree structure
+def build_tree(path: Path, depth: int = 0) -> dict:
+    # Convert filesystem into a serializable tree structure.
+    # Symlinked directories are listed but not followed, unreadable
+    # directories come back empty, and very deep trees are cut off.
     node = {"name": path.name, "type": "dir", "children": []}
+    if depth >= MAX_DEPTH:
+        return node
 
-    for p in sorted(path.iterdir(), key=lambda x: (x.is_file(), x.name)):
-        if p.is_dir():
-            node["children"].append(build_tree(p))
+    try:
+        entries = sorted(path.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
+    except OSError:
+        return node
+
+    for p in entries:
+        if p.is_dir() and not p.is_symlink():
+            node["children"].append(build_tree(p, depth + 1))
         else:
             node["children"].append({"name": p.name, "type": "file"})
 
