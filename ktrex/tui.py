@@ -69,11 +69,9 @@ def draw_menu(stdscr, selected: int):
         stdscr.addnstr(y, start_x, item, menu_width, attr)
 
 
-def draw_tree(stdscr, root: Path, current: Path, scroll_offset: int):
+def draw_tree(stdscr, root: Path, lines: list[str], scroll_offset: int):
     h, w = stdscr.getmaxyx()
     stdscr.addnstr(0, 0, root.name, w - 2, curses.A_BOLD)
-
-    lines = render_tree(root, current=current)
 
     visible_height = h - 2
     start = scroll_offset
@@ -150,7 +148,7 @@ def tui_main(stdscr):
         scroll_offset = min(scroll_offset, max_offset)
 
         stdscr.clear()
-        draw_tree(stdscr, root, current, scroll_offset)
+        draw_tree(stdscr, root, lines, scroll_offset)
         draw_menu(stdscr, selected)
 
         key = stdscr.getch()
