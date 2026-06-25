@@ -49,52 +49,75 @@ HELP_TEXT = [
     "Press any key to return",
 ]
 
+MENU_WIDTH = 24
+MIN_HEIGHT = 6
+MIN_WIDTH = 28
 
-def draw_menu(stdscr, selected: int):
+
+def put(stdscr, y: int, x: int, text: str, attr: int = 0, width: int | None = None):
+    """Write text without ever raising on the screen edge."""
     h, w = stdscr.getmaxyx()
-    menu_width = min(24, max(10, w - 2))
-    start_x = max(0, w - menu_width)
-    start_y = 2
-
-    if start_y >= h - 1:
+    if y < 0 or y >= h or x < 0 or x >= w:
         return
+    room = w - x - 1 if width is None else min(width, w - x - 1)
+    if room <= 0:
+        return
+    try:
+        stdscr.addnstr(y, x, text, room, attr)
+    except curses.error:
+        pass
 
-    stdscr.addnstr(start_y - 1, start_x, "Actions", menu_width, curses.A_BOLD)
 
+def menu_geometry(h: int, w: int) -> tuple[int, int]:
+    width = min(MENU_WIDTH, max(10, w // 3))
+    return max(0, w - width), width
+
+
+def too_small(h: int, w: int) -> bool:
+    return h < MIN_HEIGHT or w < MIN_WIDTH
+
+
+def draw_too_small(stdscr):
+    stdscr.clear()
+    put(stdscr, 0, 0, "KTrex: terminal too small")
+    stdscr.refresh()
+
+
+def draw_tree(stdscr, root: Path, lines: list[str], scroll_offset: int, tree_width: int):
+    put(stdscr, 0, 0, root.name, curses.A_BOLD, width=tree_width)
+
+    visible = stdscr.getmaxyx()[0] - 2
+    start = scroll_offset
+    end = min(start + visible, len(lines))
+    for i, line in enumerate(lines[start:end]):
+        put(stdscr, 1 + i, 0, line, width=tree_width)
+
+
+def draw_menu(stdscr, selected: int, menu_x: int, menu_width: int):
+    put(stdscr, 0, menu_x, "Actions", curses.A_BOLD, width=menu_width)
     for i, item in enumerate(MENU_ITEMS):
-        y = start_y + i
-        if y >= h - 1:
+        if 1 + i >= stdscr.getmaxyx()[0] - 1:
             break
         attr = curses.A_REVERSE if i == selected else curses.A_NORMAL
-        stdscr.addnstr(y, start_x, item, menu_width, attr)
+        put(stdscr, 1 + i, menu_x, item, attr, width=menu_width)
 
 
-def draw_tree(stdscr, root: Path, lines: list[str], scroll_offset: int):
+def draw_status(stdscr, message: str, location: str, scroll_info: str):
     h, w = stdscr.getmaxyx()
-    stdscr.addnstr(0, 0, root.name, w - 2, curses.A_BOLD)
-
-    visible_height = h - 2
-    start = scroll_offset
-    end = min(start + visible_height, len(lines))
-
-    for idx, line in enumerate(lines[start:end], start=1):
-        stdscr.addnstr(idx, 0, line, w - 2)
-
-    if len(lines) > visible_height:
-        indicator = f"[{start + 1}-{end}/{len(lines)}]"
-        stdscr.addnstr(h - 1, 0, indicator, w - 2)
+    label = message or location
+    tail = max(0, w - len(scroll_info) - 2) if scroll_info else w
+    put(stdscr, h - 1, 0, label, curses.A_DIM, width=tail)
+    if scroll_info:
+        put(stdscr, h - 1, max(0, w - len(scroll_info) - 1), scroll_info, curses.A_DIM)
 
 
 def draw_help(stdscr):
     stdscr.clear()
     h, w = stdscr.getmaxyx()
-
     for i, line in enumerate(HELP_TEXT):
-        y = i + 1
-        if y >= h - 1:
+        if i + 1 >= h - 1:
             break
-        stdscr.addnstr(y, 2, line, w - 4)
-
+        put(stdscr, i + 1, 2, line, width=w - 4)
     stdscr.refresh()
     stdscr.getch()
 
@@ -105,152 +128,196 @@ def prompt(stdscr, message: str) -> str:
     if y < 0:
         return ""
 
-    stdscr.move(y, 0)
-    stdscr.clrtoeol()
-    stdscr.addnstr(y, 0, message, w - 2)
+    put(stdscr, y, 0, message, width=w - 1)
+    x = min(len(message), max(0, w - 2))
+    stdscr.move(y, x)
     stdscr.refresh()
 
     curses.echo()
-    value = stdscr.getstr(y, min(len(message), w - 3)).decode().strip()
-    curses.noecho()
+    try:
+        value = stdscr.getstr(y, x, max(1, w - x - 1)).decode().strip()
+    except curses.error:
+        value = ""
+    finally:
+        curses.noecho()
     return value
 
 
-def notify(stdscr, message: str):
-    h, w = stdscr.getmaxyx()
-    y = h - 1
-    if y < 0:
-        return
-
-    stdscr.move(y, 0)
-    stdscr.clrtoeol()
-    stdscr.addnstr(y, 0, message, w - 2)
-    stdscr.refresh()
-    stdscr.getch()
+def location_label(root: Path, current: Path) -> str:
+    try:
+        rel = current.relative_to(root)
+    except ValueError:
+        return str(current)
+    return "." if str(rel) == "." else str(rel)
 
 
 def tui_main(stdscr):
     curses.curs_set(0)
-    curses.mousemask(curses.ALL_MOUSE_EVENTS)
+    try:
+        curses.mousemask(curses.ALL_MOUSE_EVENTS)
+    except curses.error:
+        pass
     stdscr.keypad(True)
 
-    scroll_offset = 0
     root = state.root_dir
     assert root is not None
+
     selected = 0
+    scroll_offset = 0
+    message = ""
 
-    while True:
-        current = state.path_stack[-1]
+    try:
+        while True:
+            h, w = stdscr.getmaxyx()
+            if too_small(h, w):
+                draw_too_small(stdscr)
+                if stdscr.getch() in (ord("q"), 27):
+                    break
+                continue
 
-        lines = render_tree(root, current=current)
-        h, _ = stdscr.getmaxyx()
-        max_offset = max(0, len(lines) - (h - 2))
-        scroll_offset = min(scroll_offset, max_offset)
+            current = state.path_stack[-1]
+            lines = render_tree(root, current=current)
+            visible = h - 2
+            max_offset = max(0, len(lines) - visible)
+            scroll_offset = min(scroll_offset, max_offset)
 
-        stdscr.clear()
-        draw_tree(stdscr, root, lines, scroll_offset)
-        draw_menu(stdscr, selected)
+            menu_x, menu_width = menu_geometry(h, w)
+            tree_width = max(1, menu_x - 1)
+            end = min(scroll_offset + visible, len(lines))
+            scroll_info = f"[{scroll_offset + 1}-{end}/{len(lines)}]" if len(lines) > visible else ""
 
-        key = stdscr.getch()
+            stdscr.clear()
+            draw_tree(stdscr, root, lines, scroll_offset, tree_width)
+            draw_menu(stdscr, selected, menu_x, menu_width)
+            draw_status(stdscr, message, location_label(root, current), scroll_info)
+            stdscr.refresh()
+            message = ""
 
-        if key == curses.KEY_RESIZE:
-            scroll_offset = 0
+            key = stdscr.getch()
 
-        elif key == curses.KEY_UP and selected > 0:
-            selected -= 1
+            if key == curses.KEY_UP and selected > 0:
+                selected -= 1
 
-        elif key == curses.KEY_DOWN and selected < len(MENU_ITEMS) - 1:
-            selected += 1
+            elif key == curses.KEY_DOWN and selected < len(MENU_ITEMS) - 1:
+                selected += 1
 
-        elif key == curses.KEY_NPAGE:
-            scroll_offset += 5
+            elif key == curses.KEY_NPAGE:
+                scroll_offset += 5
 
-        elif key == curses.KEY_PPAGE:
-            scroll_offset = max(0, scroll_offset - 5)
+            elif key == curses.KEY_PPAGE:
+                scroll_offset = max(0, scroll_offset - 5)
 
-        elif key == 4:
-            scroll_offset += 5
+            elif key == 4:
+                scroll_offset += 5
 
-        elif key == 21:
-            scroll_offset = max(0, scroll_offset - 5)
+            elif key == 21:
+                scroll_offset = max(0, scroll_offset - 5)
 
-        elif key == curses.KEY_MOUSE:
-            try:
-                _, _, _, _, mouse_state = curses.getmouse()
-                if mouse_state & (curses.BUTTON4_PRESSED | curses.BUTTON4_RELEASED):
-                    scroll_offset = max(0, scroll_offset - 3)
-                elif mouse_state & (curses.BUTTON5_PRESSED | curses.BUTTON5_RELEASED):
-                    scroll_offset += 3
-            except curses.error:
-                pass
+            elif key == curses.KEY_MOUSE:
+                scroll_offset = handle_mouse(stdscr, scroll_offset)
 
-        elif key in (10, 13):
-            action = MENU_ITEMS[selected]
-            scroll_offset = 0
+            elif key in (10, 13):
+                if MENU_ITEMS[selected] == "Quit":
+                    break
+                message = run_action(stdscr, current, selected)
+    finally:
+        try:
+            curses.curs_set(1)
+        except curses.error:
+            pass
 
-            if action == "Create Directory":
-                name = prompt(stdscr, "Directory name: ")
-                if name:
-                    try:
-                        new_dir = create_dir(current, name)
-                    except InvalidName as e:
-                        notify(stdscr, f"Error: {e}")
-                        new_dir = None
-                    if new_dir:
-                        state.path_stack.append(new_dir)
 
-            elif action == "Create File":
-                name = prompt(stdscr, "File name: ")
-                if name:
-                    try:
-                        create_file(current, name)
-                    except InvalidName as e:
-                        notify(stdscr, f"Error: {e}")
+def handle_mouse(stdscr, scroll_offset: int) -> int:
+    try:
+        _, _, _, _, mouse_state = curses.getmouse()
+    except curses.error:
+        return scroll_offset
 
-            elif action == "Undo":
-                undone = undo_last()
-                if undone and not current.exists():
-                    state.path_stack.pop()
+    if mouse_state & (curses.BUTTON4_PRESSED | curses.BUTTON4_RELEASED):
+        return max(0, scroll_offset - 3)
+    if mouse_state & (curses.BUTTON5_PRESSED | curses.BUTTON5_RELEASED):
+        return scroll_offset + 3
+    return scroll_offset
 
-            elif action == "Load Preset":
-                value = prompt(stdscr, "Preset name or path: ")
-                if value:
-                    try:
-                        load_preset(value, current)
-                    except Exception as e:
-                        notify(stdscr, f"Error: {e}")
 
-            elif action == "Save Structure":
-                path_str = prompt(stdscr, "Save to (path): ")
-                if path_str:
-                    try:
-                        tree = build_tree(root)
-                        with open(Path(path_str), "w") as f:
-                            json.dump(tree, f, indent=2)
-                        notify(stdscr, "Structure saved successfully")
-                    except Exception as e:
-                        notify(stdscr, f"Error: {e}")
+def run_action(stdscr, current: Path, selected: int) -> str:
+    """Run the highlighted menu action and return a status message."""
+    action = MENU_ITEMS[selected]
+    root = state.root_dir
+    assert root is not None
 
-            elif action == "Load Structure":
-                path_str = prompt(stdscr, "Load from (path): ")
-                if path_str:
-                    try:
-                        with open(Path(path_str), "r") as f:
-                            tree = json.load(f)
-                        apply_tree(root, tree)
-                    except Exception as e:
-                        notify(stdscr, f"Error: {e}")
+    if action == "Create Directory":
+        name = prompt(stdscr, "Directory name: ")
+        if not name:
+            return ""
+        try:
+            new_dir = create_dir(current, name)
+        except InvalidName as e:
+            return f"Error: {e}"
+        if new_dir is None:
+            return f"Already exists: {name}"
+        state.path_stack.append(new_dir)
+        return f"Created {name}"
 
-            elif action == "Go Back":
-                if len(state.path_stack) > 1:
-                    state.path_stack.pop()
-                else:
-                    notify(stdscr, "Already at project root")
+    if action == "Create File":
+        name = prompt(stdscr, "File name: ")
+        if not name:
+            return ""
+        try:
+            created = create_file(current, name)
+        except InvalidName as e:
+            return f"Error: {e}"
+        return f"Created {name}" if created else f"Already exists: {name}"
 
-            elif action == "Help":
-                draw_help(stdscr)
+    if action == "Undo":
+        if not undo_last():
+            return "Nothing to undo"
+        if not current.exists():
+            state.path_stack.pop()
+        return "Undone"
 
-            elif action == "Quit":
-                break
+    if action == "Load Preset":
+        value = prompt(stdscr, "Preset name or path: ")
+        if not value:
+            return ""
+        try:
+            load_preset(value, current)
+        except Exception as e:
+            return f"Error: {e}"
+        return f"Preset applied: {value}"
 
-        stdscr.refresh()
+    if action == "Save Structure":
+        path_str = prompt(stdscr, "Save to (path): ")
+        if not path_str:
+            return ""
+        try:
+            tree = build_tree(root)
+            with open(Path(path_str), "w", encoding="utf-8") as f:
+                json.dump(tree, f, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+        return f"Saved to {path_str}"
+
+    if action == "Load Structure":
+        path_str = prompt(stdscr, "Load from (path): ")
+        if not path_str:
+            return ""
+        try:
+            with open(Path(path_str), "r", encoding="utf-8") as f:
+                tree = json.load(f)
+            apply_tree(root, tree)
+        except Exception as e:
+            return f"Error: {e}"
+        return f"Loaded {path_str}"
+
+    if action == "Go Back":
+        if len(state.path_stack) > 1:
+            state.path_stack.pop()
+            return ""
+        return "Already at project root"
+
+    if action == "Help":
+        draw_help(stdscr)
+        return ""
+
+    return ""
