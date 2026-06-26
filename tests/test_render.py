@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from ktrex.render import render_tree
+from ktrex.render import collect_rows, format_row, render_tree
 from ktrex.tree import build_tree
 
 
@@ -75,3 +75,35 @@ def test_unreadable_directory_is_reported(project):
     assert any("cannot read" in line for line in lines)
     nested = {c["name"]: c for c in tree["children"]}["secret"]
     assert nested["children"] == []
+
+
+def test_collect_rows_collapsed_by_default(project):
+    (project / "a").mkdir()
+    (project / "a" / "f.txt").touch()
+
+    rows = collect_rows(project, expanded=set())
+
+    assert [r.name for r in rows] == ["a"]
+    assert rows[0].is_dir is True
+    assert rows[0].expanded is False
+
+
+def test_collect_rows_expands_listed_dirs(project):
+    (project / "a").mkdir()
+    (project / "a" / "f.txt").touch()
+
+    rows = collect_rows(project, expanded={project / "a"})
+
+    assert [r.name for r in rows] == ["a", "f.txt"]
+    assert rows[0].expanded is True
+
+
+def test_format_row_arrow_reflects_expansion(project):
+    (project / "a").mkdir()
+
+    collapsed = collect_rows(project, expanded=set())[0]
+    opened = collect_rows(project, expanded={project / "a"})[0]
+
+    assert "[+] a" in format_row(collapsed)
+    assert "[-] a" in format_row(opened)
+
