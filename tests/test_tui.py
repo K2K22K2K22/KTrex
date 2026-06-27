@@ -2,7 +2,16 @@ import curses
 
 import pytest
 
-from ktrex.tui import location_label, menu_geometry, put, too_small
+from ktrex.render import collect_rows
+from ktrex.tui import (
+    clamp_viewport,
+    find_row,
+    location_label,
+    menu_geometry,
+    put,
+    stack_for,
+    too_small,
+)
 
 
 class FakeScreen:
@@ -87,3 +96,32 @@ def test_location_label(project):
     assert location_label(project, project) == "."
     assert location_label(project, project / "src") == "src"
     assert location_label(project / "other", project) == str(project)
+
+
+def test_stack_for_builds_path_from_root(project):
+    (project / "a" / "b").mkdir(parents=True)
+
+    stack = stack_for(project, project / "a" / "b")
+
+    assert stack == [project, project / "a", project / "a" / "b"]
+
+
+def test_stack_for_root_is_single(project):
+    assert stack_for(project, project) == [project]
+
+
+def test_find_row(project):
+    (project / "a").mkdir()
+    (project / "b").mkdir()
+    rows = collect_rows(project, expanded=set())
+
+    assert find_row(rows, project / "b") == 1
+    assert find_row(rows, project / "missing") is None
+
+
+def test_clamp_viewport():
+    assert clamp_viewport(0, 0, 0, 10) == 0
+    assert clamp_viewport(0, 0, 5, 10) == 0
+    assert clamp_viewport(12, 0, 20, 5) == 8  # cursor pulls the view down
+    assert clamp_viewport(0, 50, 20, 5) == 0  # top is clamped to the last page
+    assert clamp_viewport(2, 10, 20, 5) == 2  # cursor above the top page

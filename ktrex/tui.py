@@ -5,7 +5,7 @@ from pathlib import Path
 from . import state
 from .fs import InvalidName, create_dir, create_file, undo_last
 from .presets import load_preset
-from .render import render_tree
+from .render import collect_rows, format_row
 from .tree import apply_tree, build_tree
 
 MENU_ITEMS = [
@@ -23,9 +23,17 @@ MENU_ITEMS = [
 HELP_TEXT = [
     "KTrex — Interactive Directory Builder",
     "",
-    "Navigation:",
-    "  ↑ / ↓     Move through menu",
-    "  Enter     Select action",
+    "Tree view:",
+    "  ↑ / ↓        Move the cursor",
+    "  → / Space    Expand a folder",
+    "  ← / Backspace  Collapse or go to parent",
+    "  Enter        Enter the folder",
+    "  PageUp / Down  Move a page",
+    "  Home / End   Jump to top or bottom",
+    "",
+    "Menu:",
+    "  Tab          Switch focus between tree and menu",
+    "  Enter        Run the highlighted action",
     "",
     "Actions:",
     "  Create Directory  - Create and enter a new folder",
@@ -40,11 +48,6 @@ HELP_TEXT = [
     "  • KTrex never deletes non-empty directories",
     "  • Existing files are never overwritten",
     "  • Presets are additive",
-    "",
-    "Scrolling:",
-    "  PageUp / PageDown  Scroll tree view",
-    "  Ctrl + U / Ctrl + D  Scroll up / down",
-    "  Mouse Wheel        Scroll tree",
     "",
     "Press any key to return",
 ]
@@ -83,22 +86,22 @@ def draw_too_small(stdscr):
     stdscr.refresh()
 
 
-def draw_tree(stdscr, root: Path, lines: list[str], scroll_offset: int, tree_width: int):
+def draw_tree(stdscr, root: Path, rows, current: Path, cursor: int, top: int, tree_width: int, focus: str):
     put(stdscr, 0, 0, root.name, curses.A_BOLD, width=tree_width)
 
     visible = stdscr.getmaxyx()[0] - 2
-    start = scroll_offset
-    end = min(start + visible, len(lines))
-    for i, line in enumerate(lines[start:end]):
-        put(stdscr, 1 + i, 0, line, width=tree_width)
+    for i, row in enumerate(rows[top:top + visible]):
+        index = top + i
+        attr = curses.A_REVERSE if focus == "tree" and index == cursor else curses.A_NORMAL
+        put(stdscr, 1 + i, 0, format_row(row, current), attr, width=tree_width)
 
 
-def draw_menu(stdscr, selected: int, menu_x: int, menu_width: int):
+def draw_menu(stdscr, selected: int, focus: str, menu_x: int, menu_width: int):
     put(stdscr, 0, menu_x, "Actions", curses.A_BOLD, width=menu_width)
     for i, item in enumerate(MENU_ITEMS):
         if 1 + i >= stdscr.getmaxyx()[0] - 1:
             break
-        attr = curses.A_REVERSE if i == selected else curses.A_NORMAL
+        attr = curses.A_REVERSE if focus == "menu" and i == selected else curses.A_NORMAL
         put(stdscr, 1 + i, menu_x, item, attr, width=menu_width)
 
 
@@ -151,6 +154,44 @@ def location_label(root: Path, current: Path) -> str:
     return "." if str(rel) == "." else str(rel)
 
 
+def find_row(rows, path: Path) -> int | None:
+    for i, row in enumerate(rows):
+        if row.path == path:
+            return i
+    return None
+
+
+def stack_for(root: Path, target: Path) -> list[Path]:
+    stack = [root]
+    for part in target.relative_to(root).parts:
+        stack.append(stack[-1] / part)
+    return stack
+
+
+def handle_mouse(stdscr, top: int) -> int:
+    try:
+        _, _, _, _, mouse_state = curses.getmouse()
+    except curses.error:
+        return top
+
+    if mouse_state & (curses.BUTTON4_PRESSED | curses.BUTTON4_RELEASED):
+        return max(0, top - 3)
+    if mouse_state & (curses.BUTTON5_PRESSED | curses.BUTTON5_RELEASED):
+        return top + 3
+    return top
+
+
+def clamp_viewport(cursor: int, top: int, count: int, visible: int) -> int:
+    if count == 0:
+        return 0
+    top = max(0, min(top, max(0, count - visible)))
+    if cursor < top:
+        top = cursor
+    elif cursor >= top + visible:
+        top = cursor - visible + 1
+    return top
+
+
 def tui_main(stdscr):
     curses.curs_set(0)
     try:
@@ -163,8 +204,12 @@ def tui_main(stdscr):
     assert root is not None
 
     selected = 0
-    scroll_offset = 0
+    cursor = 0
+    top = 0
+    focus = "tree"
+    expanded: set[Path] = set()
     message = ""
+    desired: Path | None = None
 
     try:
         while True:
@@ -176,68 +221,91 @@ def tui_main(stdscr):
                 continue
 
             current = state.path_stack[-1]
-            lines = render_tree(root, current=current)
+            rows = collect_rows(root, expanded)
+
+            if desired is not None:
+                found = find_row(rows, desired)
+                if found is not None:
+                    cursor = found
+                desired = None
+
+            if rows:
+                cursor = max(0, min(cursor, len(rows) - 1))
+            else:
+                cursor = 0
+
             visible = h - 2
-            max_offset = max(0, len(lines) - visible)
-            scroll_offset = min(scroll_offset, max_offset)
+            top = clamp_viewport(cursor, top, len(rows), visible)
 
             menu_x, menu_width = menu_geometry(h, w)
             tree_width = max(1, menu_x - 1)
-            end = min(scroll_offset + visible, len(lines))
-            scroll_info = f"[{scroll_offset + 1}-{end}/{len(lines)}]" if len(lines) > visible else ""
+            end = min(top + visible, len(rows))
+            scroll_info = f"[{top + 1}-{end}/{len(rows)}]" if len(rows) > visible else ""
 
             stdscr.clear()
-            draw_tree(stdscr, root, lines, scroll_offset, tree_width)
-            draw_menu(stdscr, selected, menu_x, menu_width)
+            draw_tree(stdscr, root, rows, current, cursor, top, tree_width, focus)
+            draw_menu(stdscr, selected, focus, menu_x, menu_width)
             draw_status(stdscr, message, location_label(root, current), scroll_info)
             stdscr.refresh()
             message = ""
 
             key = stdscr.getch()
 
-            if key == curses.KEY_UP and selected > 0:
-                selected -= 1
-
-            elif key == curses.KEY_DOWN and selected < len(MENU_ITEMS) - 1:
-                selected += 1
-
-            elif key == curses.KEY_NPAGE:
-                scroll_offset += 5
-
-            elif key == curses.KEY_PPAGE:
-                scroll_offset = max(0, scroll_offset - 5)
-
-            elif key == 4:
-                scroll_offset += 5
-
-            elif key == 21:
-                scroll_offset = max(0, scroll_offset - 5)
+            if key == 9:  # Tab switches focus
+                focus = "menu" if focus == "tree" else "tree"
 
             elif key == curses.KEY_MOUSE:
-                scroll_offset = handle_mouse(stdscr, scroll_offset)
+                top = handle_mouse(stdscr, top)
 
-            elif key in (10, 13):
-                if MENU_ITEMS[selected] == "Quit":
-                    break
-                message = run_action(stdscr, current, selected)
+            elif focus == "tree":
+                if key == curses.KEY_UP:
+                    cursor -= 1
+                elif key == curses.KEY_DOWN:
+                    cursor += 1
+                elif key == curses.KEY_PPAGE:
+                    cursor -= visible
+                elif key == curses.KEY_NPAGE:
+                    cursor += visible
+                elif key == curses.KEY_HOME:
+                    cursor = 0
+                elif key == curses.KEY_END:
+                    cursor = len(rows) - 1
+                elif key in (curses.KEY_RIGHT, ord(" ")):
+                    if rows and rows[cursor].is_dir:
+                        expanded.add(rows[cursor].path)
+                elif key in (curses.KEY_LEFT, curses.KEY_BACKSPACE, 127, 8):
+                    if rows and rows[cursor].is_dir and rows[cursor].path in expanded:
+                        expanded.discard(rows[cursor].path)
+                    else:
+                        parent = find_row(rows, rows[cursor].path.parent) if rows else None
+                        if parent is not None:
+                            cursor = parent
+                elif key in (10, 13):
+                    if rows and rows[cursor].is_dir:
+                        target = rows[cursor].path
+                        state.path_stack = stack_for(root, target)
+                        expanded.add(target)
+                        desired = target
+
+            else:  # menu focus
+                if key == curses.KEY_UP and selected > 0:
+                    selected -= 1
+                elif key == curses.KEY_DOWN and selected < len(MENU_ITEMS) - 1:
+                    selected += 1
+                elif key == curses.KEY_PPAGE:
+                    top = max(0, top - 5)
+                elif key == curses.KEY_NPAGE:
+                    top += 5
+                elif key in (10, 13):
+                    if MENU_ITEMS[selected] == "Quit":
+                        break
+                    run_action(stdscr, current, selected)
+                    desired = state.path_stack[-1]
     finally:
         try:
             curses.curs_set(1)
         except curses.error:
             pass
-
-
-def handle_mouse(stdscr, scroll_offset: int) -> int:
-    try:
-        _, _, _, _, mouse_state = curses.getmouse()
-    except curses.error:
-        return scroll_offset
-
-    if mouse_state & (curses.BUTTON4_PRESSED | curses.BUTTON4_RELEASED):
-        return max(0, scroll_offset - 3)
-    if mouse_state & (curses.BUTTON5_PRESSED | curses.BUTTON5_RELEASED):
-        return scroll_offset + 3
-    return scroll_offset
 
 
 def run_action(stdscr, current: Path, selected: int) -> str:
