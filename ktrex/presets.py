@@ -9,6 +9,14 @@ def _builtin_preset_path(name: str) -> Path:
     return Path(__file__).parent / "presets" / f"{name}.json"
 
 
+def builtin_presets() -> list[str]:
+    """Names of the presets shipped inside the KTrex package."""
+    folder = Path(__file__).parent / "presets"
+    if not folder.is_dir():
+        return []
+    return sorted(path.stem for path in folder.glob("*.json"))
+
+
 def load_preset(preset: str | Path, base: Path):
     # Load a preset by name (builtin) or by explicit file path.
     if isinstance(preset, str):

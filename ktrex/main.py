@@ -1,50 +1,83 @@
+import argparse
 import curses
 import sys
 from pathlib import Path
 
 from ktrex import __version__, state
+from ktrex.presets import builtin_presets, load_preset
 from ktrex.tui import tui_main
 
 
-def resolve_root(argv: list[str]) -> Path:
-    # Resolve project root directory from CLI arguments.
-    if len(argv) == 1:
-        # No argument → ask user
-        name = input("Project directory name (or . for current): ").strip()
-        if not name:
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="ktrex",
+        description="Build a directory structure, interactively or from a preset.",
+    )
+    parser.add_argument(
+        "directory",
+        nargs="?",
+        help="project directory (default: ask, use . for the current directory)",
+    )
+    parser.add_argument("--version", action="version", version=f"ktrex {__version__}")
+    parser.add_argument(
+        "--list-presets",
+        action="store_true",
+        help="list the bundled presets and exit",
+    )
+    parser.add_argument(
+        "--apply",
+        metavar="PRESET",
+        help="apply a preset to the directory and exit",
+    )
+    return parser
+
+
+def prepare_root(directory: str | None) -> Path:
+    """Resolve the project directory, create it, and reset the session state."""
+    if directory is None:
+        directory = input("Project directory name (or . for current): ").strip()
+        if not directory:
             raise ValueError("Project directory name cannot be empty")
-        return Path(name)
 
-    arg = argv[1]
-
-    if arg == "--version":
-        print(f"ktrex {__version__}")
-        sys.exit(0)
-
-    if arg == ".":
-        return Path.cwd()
-
-    return Path(arg)
-
-
-def main():
-    try:
-        root = resolve_root(sys.argv)
-    except ValueError as e:
-        print(f"Error: {e}")
-        return
-
+    root = Path.cwd() if directory == "." else Path(directory)
     root = root.expanduser().resolve()
-
-    # Create directory only if it does not exist
     root.mkdir(parents=True, exist_ok=True)
-    # Clean initialization
+
     state.root_dir = root
     state.path_stack = [root]
     state.history.clear()
+    return root
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+
+    if args.list_presets:
+        for name in builtin_presets():
+            print(name)
+        return 0
+
+    if args.apply and args.directory is None:
+        args.directory = "."
+
+    try:
+        root = prepare_root(args.directory)
+    except ValueError as e:
+        print(f"Error: {e}")
+        return 1
+
+    if args.apply:
+        try:
+            load_preset(args.apply, root)
+        except Exception as e:
+            print(f"Error: {e}")
+            return 1
+        print(f"Applied preset '{args.apply}' to {root}")
+        return 0
 
     curses.wrapper(tui_main)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
