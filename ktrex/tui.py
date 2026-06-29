@@ -21,7 +21,7 @@ MENU_ITEMS = [
 ]
 
 HELP_TEXT = [
-    "KTrex — Interactive Directory Builder",
+    "KTrex - Interactive Directory Builder",
     "",
     "Tree view:",
     "  ↑ / ↓        Move the cursor",

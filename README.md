@@ -1,8 +1,8 @@
-# KTrex 
+# KTrex
 
-**KTrex** is an interactive, terminal-based directory and file structure builder.  
-It lets you visually create, navigate, undo, save, load, and reuse project layouts
-directly from a curses-based TUI — safely and deterministically.
+**KTrex** is an interactive, terminal-based directory and file structure builder.
+It lets you create, navigate, undo, save, load, and reuse project layouts directly
+from a curses TUI, safely and deterministically.
 
 > Think: `mkdir` + `tree` + `undo` + `presets` + `resume`, all in one tool.
 
@@ -10,15 +10,15 @@ directly from a curses-based TUI — safely and deterministically.
 
 ## Features
 
-- Interactive terminal UI (arrow-key driven)
+- Interactive terminal UI (keyboard driven)
+- Move through the tree with a cursor, expand and collapse folders
 - Create directories and files visually
 - Safe undo (never deletes non-empty directories)
 - Presets (builtin or external JSON)
-- Save project structure to JSON
-- Load and resume saved structures
+- Save a project structure to JSON and load it back
 - Non-destructive by design (no overwrites, no forced deletes)
 - Works offline, zero runtime dependencies
-- Scrollable tree view (keyboard + mouse)
+- Non-interactive mode for scripts: list and apply presets from the command line
 
 ---
 
@@ -28,7 +28,7 @@ directly from a curses-based TUI — safely and deterministically.
 
 ```bash
 pip install KTrex
-````
+```
 
 ### Editable install (for development)
 
@@ -40,29 +40,58 @@ pip install -e .
 
 ---
 
-## ▶️ Usage
+## Usage
 
-Run KTrex inside any directory:
+Start the interactive interface in any directory:
 
 ```bash
-KTrex
+ktrex
 ```
 
-You’ll be dropped into an interactive TUI showing your project tree and available actions.
+You are dropped into a TUI that shows your project tree on the left and the
+actions on the right.
+
+You can also name the directory up front, or use `.` for the current one:
+
+```bash
+ktrex my-project
+ktrex .
+```
+
+### Command line options
+
+```text
+ktrex [directory] [--version] [--list-presets] [--apply PRESET]
+```
+
+- `--version` prints the version and exits.
+- `--list-presets` prints the bundled preset names and exits.
+- `--apply PRESET` builds the preset in the directory and exits, without
+  opening the interface. Defaults to the current directory when no directory
+  is given.
+
+```bash
+ktrex --list-presets
+ktrex --apply python_package my-lib
+```
+
+Exit code is `0` on success and `1` when the directory or preset is invalid.
 
 ---
 
 ## Controls
 
-| Key                   | Action                         |
-|-----------------------|--------------------------------|
-| ↑ / ↓                 | Navigate menu                  |
-| Enter                 | Select highlighted action      |
-| PageUp / PageDown     | Scroll tree view               |
-| Ctrl + U / Ctrl + D   | Scroll tree view               |
-| Mouse Wheel           | Scroll tree view               |
-| Any key               | Dismiss messages / dialogs     |
-| Quit                  | Exit KTrex safely               |
+| Key                    | Action                              |
+|------------------------|-------------------------------------|
+| Tab                    | Switch focus between tree and menu  |
+| ↑ / ↓                  | Move the cursor (tree or menu)      |
+| → / Space              | Expand a folder                     |
+| ← / Backspace          | Collapse a folder, or go to parent  |
+| Enter                  | Enter a folder, or run the action   |
+| PageUp / PageDown      | Move a page                         |
+| Home / End             | Jump to the top or bottom           |
+| Mouse Wheel            | Scroll the tree                     |
+| Quit                   | Exit KTrex safely                   |
 
 ---
 
@@ -70,43 +99,43 @@ You’ll be dropped into an interactive TUI showing your project tree and availa
 
 ### Create Directory
 
-* Creates a new directory in the current location
-* Automatically enters the directory
+- Creates a new directory in the current location
+- Enters the new directory
 
 ### Create File
 
-* Creates a file in the current directory
-* Does **not** change navigation
+- Creates a file in the current directory
+- Does not change navigation
 
 ### Undo
 
-* Reverts the most recent create action
-* Only removes files or **empty directories**
-* Never deletes non-empty directories
+- Reverts the most recent create action
+- Removes files and empty directories only
+- Never deletes non-empty directories
 
 ### Load Preset
 
-* Load a predefined structure by name or file path
-* Presets are **additive**, never destructive
+- Loads a structure by name or file path
+- Presets are additive, never destructive
 
 ### Save Structure
 
-* Serialize the entire project tree to a JSON file
-* Useful for reuse, backups, or AI-assisted generation
+- Serializes the entire project tree to a JSON file
+- Useful for reuse, backups, or AI-generated layouts
 
 ### Load Structure
 
-* Load a previously saved structure JSON
-* Applies safely without removing existing files
+- Loads a previously saved structure JSON
+- Applies safely without removing existing files
 
 ### Go Back
 
-* Navigate to parent directory
-* Cannot escape project root
+- Navigates to the parent directory
+- Cannot escape the project root
 
 ### Help
 
-* View built-in documentation and keybindings
+- Shows the built-in documentation and keybindings
 
 ---
 
@@ -116,21 +145,23 @@ You’ll be dropped into an interactive TUI showing your project tree and availa
 
 ```text
 ml_project
+python_package
+web_project
 ```
 
 Usage:
 
-```
-Load Preset → ml_project
+```text
+Load Preset -> ml_project
 ```
 
 ### External presets
 
 ```text
-Load Preset → /path/to/custom_preset.json
+Load Preset -> /path/to/custom_preset.json
 ```
 
-Preset format is documented below.
+The preset format is documented below.
 
 ---
 
@@ -154,38 +185,35 @@ KTrex uses a simple, declarative JSON format:
 }
 ```
 
-This format is shared by:
-
-* presets
-* saved structures
-* AI-generated layouts
+The same format is used by presets, saved structures, and generated layouts.
 
 ---
 
 ## Safety Guarantees
 
-KTrex is designed to be **safe by default**:
+KTrex is designed to be safe by default:
 
-* ❌ Never overwrites files
-* ❌ Never deletes non-empty directories
-* ❌ Never escapes project root
-* ✅ Undo is leaf-only and predictable
-* ✅ All destructive actions are explicit
+- Never overwrites files
+- Never deletes non-empty directories
+- Never writes outside the project root
+- Skips symbolic links and unreadable directories instead of crashing
+- Rolls back a failed apply so disk and undo history stay in sync
 
 ---
 
-## 📜 License
+## License
 
-This project is licensed under the **MIT License**.  
+This project is licensed under the **MIT License**.
 You are free to use, modify, and distribute this software with proper attribution.
 
 See the [LICENSE](./LICENSE) file for details.
 
+---
 
-## 💖 Sponsor
+## Sponsor
 
 If you find this project useful and want to support its development:
 
-[![Ko-Fi](https://img.shields.io/badge/☕%20Buy%20Me%20a%20Coffee-ko--fi-red)](https://ko-fi.com/akris)
+[![Ko-Fi](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ko--fi-red)](https://ko-fi.com/akris)
 
 Your support helps keep this project alive and actively maintained.
