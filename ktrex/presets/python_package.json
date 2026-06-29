@@ -1,0 +1,25 @@
+{
+  "name": "python_package",
+  "type": "dir",
+  "children": [
+    {
+      "name": "src",
+      "type": "dir",
+      "children": [
+        {
+          "name": "package",
+          "type": "dir",
+          "children": [{ "name": "__init__.py", "type": "file" }]
+        }
+      ]
+    },
+    {
+      "name": "tests",
+      "type": "dir",
+      "children": [{ "name": "test_placeholder.py", "type": "file" }]
+    },
+    { "name": "pyproject.toml", "type": "file" },
+    { "name": "README.md", "type": "file" },
+    { "name": ".gitignore", "type": "file" }
+  ]
+}

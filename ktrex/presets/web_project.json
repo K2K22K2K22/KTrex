@@ -1,0 +1,21 @@
+{
+  "name": "web_project",
+  "type": "dir",
+  "children": [
+    {
+      "name": "src",
+      "type": "dir",
+      "children": [
+        { "name": "app.js", "type": "file" },
+        { "name": "styles.css", "type": "file" }
+      ]
+    },
+    {
+      "name": "public",
+      "type": "dir",
+      "children": [{ "name": "index.html", "type": "file" }]
+    },
+    { "name": "package.json", "type": "file" },
+    { "name": "README.md", "type": "file" }
+  ]
+}

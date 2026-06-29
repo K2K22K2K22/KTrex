@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from ktrex.presets import load_preset
-from ktrex.tree import InvalidTree
+from ktrex.presets import _builtin_preset_path, builtin_presets, load_preset
+from ktrex.tree import InvalidTree, validate_tree
 
 
 def test_loads_builtin_preset(project):
@@ -48,3 +48,17 @@ def test_rejects_traversal_preset(project, tmp_path):
         load_preset(path, project)
 
     assert not (project.parent / "escape").exists()
+
+
+def test_every_builtin_preset_is_valid():
+    names = builtin_presets()
+
+    assert names
+    for name in names:
+        data = json.loads((_builtin_preset_path(name)).read_text(encoding="utf-8"))
+        validate_tree(data)
+
+
+def test_every_builtin_preset_applies(project):
+    for name in builtin_presets():
+        load_preset(name, project)
