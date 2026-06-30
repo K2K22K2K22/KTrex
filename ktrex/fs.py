@@ -33,6 +33,8 @@ def validate_name(name: str) -> str:
         raise InvalidName("name cannot contain path separators")
     if "\x00" in name:
         raise InvalidName("name cannot contain null bytes")
+    if any(ord(c) < 32 or ord(c) == 127 for c in name):
+        raise InvalidName("name cannot contain control characters")
     return name
 
 
@@ -76,6 +78,11 @@ def undo_last() -> bool:
         return False
 
     p = state.history.pop()
+
+    if p.is_symlink():
+        # Never follow it; drop the link itself.
+        p.unlink()
+        return True
 
     if p.is_file():
         p.unlink()

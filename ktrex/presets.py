@@ -5,7 +5,10 @@ from .tree import apply_tree
 
 
 def _builtin_preset_path(name: str) -> Path:
-    # Resolve a preset bundled inside the KTrex package.
+    # Resolve a preset bundled inside the KTrex package. The name must be a
+    # single segment so it cannot walk out of the presets directory.
+    if not name or name in (".", "..") or "/" in name or "\\" in name or "\x00" in name:
+        raise ValueError(f"invalid preset name: {name!r}")
     return Path(__file__).parent / "presets" / f"{name}.json"
 
 
@@ -20,7 +23,8 @@ def builtin_presets() -> list[str]:
 def load_preset(preset: str | Path, base: Path):
     # Load a preset by name (builtin) or by explicit file path.
     if isinstance(preset, str):
-        path = _builtin_preset_path(preset)
+        candidate = Path(preset)
+        path = candidate if candidate.is_file() else _builtin_preset_path(preset)
     else:
         path = preset
 

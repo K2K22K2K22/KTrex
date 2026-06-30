@@ -41,6 +41,8 @@ def prepare_root(directory: str | None) -> Path:
 
     root = Path.cwd() if directory == "." else Path(directory)
     root = root.expanduser().resolve()
+    if root.exists() and not root.is_dir():
+        raise ValueError(f"not a directory: {root}")
     root.mkdir(parents=True, exist_ok=True)
 
     state.root_dir = root

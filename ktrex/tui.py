@@ -57,6 +57,11 @@ MIN_HEIGHT = 6
 MIN_WIDTH = 28
 
 
+def sanitize(text: str) -> str:
+    """Replace control characters so a hostile name cannot inject escapes."""
+    return "".join("?" if ord(ch) < 32 or ord(ch) == 127 else ch for ch in text)
+
+
 def put(stdscr, y: int, x: int, text: str, attr: int = 0, width: int | None = None):
     """Write text without ever raising on the screen edge."""
     h, w = stdscr.getmaxyx()
@@ -66,7 +71,7 @@ def put(stdscr, y: int, x: int, text: str, attr: int = 0, width: int | None = No
     if room <= 0:
         return
     try:
-        stdscr.addnstr(y, x, text, room, attr)
+        stdscr.addnstr(y, x, sanitize(text), room, attr)
     except curses.error:
         pass
 

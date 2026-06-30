@@ -25,6 +25,17 @@ def test_loads_preset_from_path(project, tmp_path):
     assert (project / "app.py").is_file()
 
 
+def test_loads_preset_from_string_path(project, tmp_path):
+    path = tmp_path / "custom.json"
+    path.write_text(
+        json.dumps({"name": "c", "type": "dir", "children": [{"name": "app.py", "type": "file"}]})
+    )
+
+    load_preset(str(path), project)
+
+    assert (project / "app.py").is_file()
+
+
 def test_missing_preset_raises(project):
     with pytest.raises(FileNotFoundError):
         load_preset("does_not_exist", project)
