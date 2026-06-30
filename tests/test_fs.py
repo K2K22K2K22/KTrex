@@ -33,7 +33,9 @@ def test_creates_dir_and_file(project):
 
     assert d is not None and d.is_dir() and d == project / "src"
     assert f is not None and f.is_file() and f == project / "main.py"
-    assert state.history == [d, f]
+    assert len(state.history) == 2
+    assert state.history[0].get("path") == d
+    assert state.history[1].get("path") == f
 
 
 def test_existing_dir_is_skipped(project):
@@ -82,4 +84,5 @@ def test_undo_keeps_non_empty_dir(project):
     assert undo_last() is False
 
     assert d.exists()
-    assert state.history == [d]
+    assert len(state.history) == 1
+    assert state.history[0].get("path") == d

@@ -1,16 +1,9 @@
 """Filesystem operations for KTrex.
 
-Every entry is created through this module so the undo history stays in
-sync with what is on disk. The contract is:
-
-- create_dir and create_file append the new path to the undo history and
-  never touch an existing path.
-- undo_last removes the most recent entry: a file always, a directory only
-  when it is empty. An empty history returns False without side effects.
-- remove_created drops an entry again. apply_tree uses it to roll back
-  everything a failed multi entry apply had created.
-- Names are single path segments and every target stays inside the project
-  root.
+Operations record enough metadata to validate undo safely: operation type,
+target, whether it was created by KTrex, and optional identity. Undo refuses to
+remove non-empty directories, refuses to remove a replacement/external change,
+and never drops history on a failed undo.
 """
 
 from pathlib import Path
@@ -39,15 +32,25 @@ def validate_name(name: str) -> str:
 
 
 def resolve_target(base: Path, name: str) -> Path:
-    """Return base/name, rejecting anything that resolves outside the root."""
     target = base / name
     root = state.root_dir
     if root is not None:
-        root = root.resolve()
-        resolved = target.resolve()
-        if resolved != root and root not in resolved.parents:
+        try:
+            root_r = root.resolve()
+            resolved = target.resolve()
+        except (FileNotFoundError, RuntimeError):
+            raise InvalidName(f"path escapes the project root: {name}")
+        if resolved != root_r and root_r not in resolved.parents:
             raise InvalidName(f"path escapes the project root: {name}")
     return target
+
+
+def _op_stat(p: Path) -> tuple[float, int]:
+    try:
+        st = p.stat()
+        return st.st_mtime, st.st_size
+    except (FileNotFoundError, OSError):
+        return 0.0, -1
 
 
 def create_dir(base: Path, name: str) -> Path | None:
@@ -57,7 +60,10 @@ def create_dir(base: Path, name: str) -> Path | None:
         return None
 
     target.mkdir()
-    state.history.append(target)
+    mtime, size = _op_stat(target)
+    state.history.append(
+        {"op": "dir", "path": target, "created": True, "mtime": mtime, "size": size}
+    )
     return target
 
 
@@ -68,50 +74,92 @@ def create_file(base: Path, name: str) -> Path | None:
         return None
 
     target.touch()
-    state.history.append(target)
+    mtime, size = _op_stat(target)
+    state.history.append(
+        {"op": "file", "path": target, "created": True, "mtime": mtime, "size": size}
+    )
     return target
 
 
 def undo_last() -> bool:
-    """Undo the most recent creation. Files are removed, directories only when empty."""
     if not state.history:
         return False
 
-    p = state.history.pop()
+    op = state.history.pop()
+    p = op.get("path")
+    if p is None:
+        return False
+    op_type = op.get("op")
 
     if p.is_symlink():
-        # Never follow it; drop the link itself.
-        p.unlink()
-        return True
+        try:
+            p.unlink()
+            return True
+        except (FileNotFoundError, OSError):
+            state.history.append(op)
+            return False
 
     if p.is_file():
-        p.unlink()
-        return True
+        mtime, size = _op_stat(p)
+        if mtime != op.get("mtime", -1) or size != op.get("size", -2):
+            state.history.append(op)
+            return False
+        try:
+            p.unlink()
+            return True
+        except (FileNotFoundError, OSError):
+            state.history.append(op)
+            return False
 
     if p.is_dir():
-        # only remove empty directories, never data
-        if any(p.iterdir()):
-            state.history.append(p)  # put it back, nothing was undone
+        if op_type != "dir":
+            state.history.append(op)
             return False
-        p.rmdir()
+        try:
+            if any(p.iterdir()):
+                state.history.append(op)
+                return False
+        except (FileNotFoundError, OSError):
+            state.history.append(op)
+            return False
+        try:
+            p.rmdir()
+            return True
+        except (FileNotFoundError, OSError):
+            state.history.append(op)
+            return False
+
+    if not p.exists():
         return True
 
+    state.history.append(op)
     return False
 
 
 def remove_created(path: Path) -> bool:
-    """Drop a path created by apply_tree from disk and from the undo history."""
     try:
-        state.history.remove(path)
-    except ValueError:
+        for i, op in enumerate(state.history):
+            if op.get("path") == path:
+                del state.history[i]
+                break
+    except (ValueError, IndexError):
         pass
 
-    if path.is_symlink():
+    try:
+        if path.is_symlink():
+            path.unlink()
+            return True
+        if path.is_file():
+            path.unlink()
+            return True
+        if path.is_dir():
+            try:
+                if any(path.iterdir()):
+                    return False
+            except (FileNotFoundError, OSError):
+                return False
+            path.rmdir()
+            return True
         return False
-    if path.is_file():
-        path.unlink()
-        return True
-    if path.is_dir() and not any(path.iterdir()):
-        path.rmdir()
-        return True
-    return False
+    except (FileNotFoundError, OSError):
+        return False
