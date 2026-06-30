@@ -1,0 +1,32 @@
+{
+  "name": "django_project",
+  "type": "dir",
+  "children": [
+    { "name": "manage.py", "type": "file" },
+    {
+      "name": "project",
+      "type": "dir",
+      "children": [
+        { "name": "__init__.py", "type": "file" },
+        { "name": "settings.py", "type": "file" },
+        { "name": "urls.py", "type": "file" },
+        { "name": "wsgi.py", "type": "file" },
+        { "name": "asgi.py", "type": "file" }
+      ]
+    },
+    {
+      "name": "app",
+      "type": "dir",
+      "children": [
+        { "name": "__init__.py", "type": "file" },
+        { "name": "models.py", "type": "file" },
+        { "name": "views.py", "type": "file" },
+        { "name": "admin.py", "type": "file" },
+        { "name": "apps.py", "type": "file" }
+      ]
+    },
+    { "name": "templates", "type": "dir", "children": [] },
+    { "name": "requirements.txt", "type": "file" },
+    { "name": "README.md", "type": "file" }
+  ]
+}

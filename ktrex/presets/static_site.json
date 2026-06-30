@@ -1,0 +1,24 @@
+{
+  "name": "static_site",
+  "type": "dir",
+  "children": [
+    { "name": "index.html", "type": "file" },
+    { "name": "about.html", "type": "file" },
+    {
+      "name": "css",
+      "type": "dir",
+      "children": [{ "name": "style.css", "type": "file" }]
+    },
+    {
+      "name": "js",
+      "type": "dir",
+      "children": [{ "name": "app.js", "type": "file" }]
+    },
+    {
+      "name": "assets",
+      "type": "dir",
+      "children": [{ "name": ".gitkeep", "type": "file" }]
+    },
+    { "name": "README.md", "type": "file" }
+  ]
+}

@@ -144,8 +144,17 @@ Exit code is `0` on success and `1` when the directory or preset is invalid.
 ### Built-in presets
 
 ```text
+cli_tool
+django_project
+fastapi_project
+flask_project
+go_project
 ml_project
+node_api
 python_package
+react_app
+rust_project
+static_site
 web_project
 ```
 

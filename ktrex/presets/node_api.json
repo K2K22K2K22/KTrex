@@ -1,0 +1,24 @@
+{
+  "name": "node_api",
+  "type": "dir",
+  "children": [
+    {
+      "name": "src",
+      "type": "dir",
+      "children": [
+        { "name": "index.js", "type": "file" },
+        { "name": "routes.js", "type": "file" },
+        { "name": "db.js", "type": "file" }
+      ]
+    },
+    {
+      "name": "tests",
+      "type": "dir",
+      "children": [{ "name": "api.test.js", "type": "file" }]
+    },
+    { "name": "package.json", "type": "file" },
+    { "name": ".env.example", "type": "file" },
+    { "name": ".gitignore", "type": "file" },
+    { "name": "README.md", "type": "file" }
+  ]
+}

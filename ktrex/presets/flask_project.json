@@ -1,0 +1,36 @@
+{
+  "name": "flask_project",
+  "type": "dir",
+  "children": [
+    { "name": "app.py", "type": "file" },
+    { "name": "config.py", "type": "file" },
+    {
+      "name": "templates",
+      "type": "dir",
+      "children": [{ "name": "index.html", "type": "file" }]
+    },
+    {
+      "name": "static",
+      "type": "dir",
+      "children": [
+        {
+          "name": "css",
+          "type": "dir",
+          "children": [{ "name": "style.css", "type": "file" }]
+        },
+        {
+          "name": "js",
+          "type": "dir",
+          "children": [{ "name": "app.js", "type": "file" }]
+        }
+      ]
+    },
+    {
+      "name": "tests",
+      "type": "dir",
+      "children": [{ "name": "test_app.py", "type": "file" }]
+    },
+    { "name": "requirements.txt", "type": "file" },
+    { "name": "README.md", "type": "file" }
+  ]
+}

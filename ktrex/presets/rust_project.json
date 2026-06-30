@@ -1,0 +1,22 @@
+{
+  "name": "rust_project",
+  "type": "dir",
+  "children": [
+    {
+      "name": "src",
+      "type": "dir",
+      "children": [
+        { "name": "main.rs", "type": "file" },
+        { "name": "lib.rs", "type": "file" }
+      ]
+    },
+    {
+      "name": "tests",
+      "type": "dir",
+      "children": [{ "name": "integration.rs", "type": "file" }]
+    },
+    { "name": "Cargo.toml", "type": "file" },
+    { "name": ".gitignore", "type": "file" },
+    { "name": "README.md", "type": "file" }
+  ]
+}

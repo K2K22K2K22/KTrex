@@ -1,0 +1,32 @@
+{
+  "name": "go_project",
+  "type": "dir",
+  "children": [
+    {
+      "name": "cmd",
+      "type": "dir",
+      "children": [
+        {
+          "name": "app",
+          "type": "dir",
+          "children": [{ "name": "main.go", "type": "file" }]
+        }
+      ]
+    },
+    {
+      "name": "internal",
+      "type": "dir",
+      "children": [
+        {
+          "name": "server",
+          "type": "dir",
+          "children": [{ "name": "server.go", "type": "file" }]
+        }
+      ]
+    },
+    { "name": "go.mod", "type": "file" },
+    { "name": "Makefile", "type": "file" },
+    { "name": ".gitignore", "type": "file" },
+    { "name": "README.md", "type": "file" }
+  ]
+}

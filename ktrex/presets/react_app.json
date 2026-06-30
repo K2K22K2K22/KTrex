@@ -1,0 +1,29 @@
+{
+  "name": "react_app",
+  "type": "dir",
+  "children": [
+    {
+      "name": "src",
+      "type": "dir",
+      "children": [
+        { "name": "App.jsx", "type": "file" },
+        { "name": "main.jsx", "type": "file" },
+        { "name": "index.css", "type": "file" },
+        {
+          "name": "components",
+          "type": "dir",
+          "children": [{ "name": "Button.jsx", "type": "file" }]
+        }
+      ]
+    },
+    {
+      "name": "public",
+      "type": "dir",
+      "children": [{ "name": "index.html", "type": "file" }]
+    },
+    { "name": "package.json", "type": "file" },
+    { "name": "vite.config.js", "type": "file" },
+    { "name": ".gitignore", "type": "file" },
+    { "name": "README.md", "type": "file" }
+  ]
+}

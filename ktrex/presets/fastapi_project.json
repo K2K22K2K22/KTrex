@@ -1,0 +1,28 @@
+{
+  "name": "fastapi_project",
+  "type": "dir",
+  "children": [
+    {
+      "name": "app",
+      "type": "dir",
+      "children": [
+        { "name": "__init__.py", "type": "file" },
+        { "name": "main.py", "type": "file" },
+        { "name": "models.py", "type": "file" },
+        {
+          "name": "routers",
+          "type": "dir",
+          "children": [{ "name": "__init__.py", "type": "file" }]
+        }
+      ]
+    },
+    {
+      "name": "tests",
+      "type": "dir",
+      "children": [{ "name": "test_api.py", "type": "file" }]
+    },
+    { "name": "requirements.txt", "type": "file" },
+    { "name": ".gitignore", "type": "file" },
+    { "name": "README.md", "type": "file" }
+  ]
+}
