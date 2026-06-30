@@ -15,7 +15,7 @@ as a plain command line tool with no runtime dependencies.
 - Safe undo: a failed or reckless undo can never delete real data
 - Built-in presets for common project layouts (Python, Django, FastAPI, Flask, Go, Rust, Node, React, ML, static sites, and more)
 - Save the current tree to JSON and load it back later, or load a preset by name or file path
-- Presets and structures share one simple JSON format, so you can write your own
+- Presets and structures share one simple JSON format
 - Everything stays inside the project root; symlinks are never followed
 - Works from the command line too: `ktrex --apply python_package my-lib`
 
@@ -130,40 +130,6 @@ prompt:
 ```text
 Preset name or path: /home/me/presets/rust_cli.json
 ```
-
-### Preset format
-
-One JSON object per entry. Every entry needs `name` and `type`; a `dir` may
-add `children`, which is a list of more entries. A `file` entry creates an
-empty file.
-
-```json
-{
-  "name": "project",
-  "type": "dir",
-  "children": [
-    {
-      "name": "src",
-      "type": "dir",
-      "children": [
-        { "name": "main.py", "type": "file" }
-      ]
-    },
-    { "name": "README.md", "type": "file" }
-  ]
-}
-```
-
-Rules:
-
-- `name` must be a single path segment (no slashes, no `.`, no `..`)
-- `type` is `"dir"` or `"file"`
-- `children` only makes sense on `"dir"` entries
-- Applying a preset never overwrites anything that already exists; new entries
-  are added to the tree and become undoable like any other creation
-
-The same format is used by `Save Structure` and `Load Structure`, so a saved
-project layout is a preset you can edit by hand.
 
 ## Safety
 
