@@ -5,6 +5,7 @@ from pathlib import Path
 from . import state
 from .fs import InvalidName, create_dir, create_file, undo_last
 from .presets import load_preset
+from .preview import read_preview
 from .render import collect_rows, format_row
 from .tree import apply_tree, build_tree
 
@@ -24,16 +25,24 @@ HELP_TEXT = [
     "KTrex - Interactive Directory Builder",
     "",
     "Tree view:",
-    "  ↑ / ↓        Move the cursor",
-    "  → / Space    Expand a folder",
-    "  ← / Backspace  Collapse or go to parent",
-    "  Enter        Enter the folder",
-    "  PageUp / Down  Move a page",
+    "  Up / Down    Move the cursor",
+    "  Right / Space  Expand a folder",
+    "  Left / Backspace  Collapse or go to parent",
+    "  Enter        Enter the folder (files are read-only here)",
+    "  v            Preview the selected file",
+    "  PageUp / PageDown  Move a page",
     "  Home / End   Jump to top or bottom",
+    "",
+    "Preview:",
+    "  Up / Down / PageUp / PageDown / Home / End  Scroll",
+    "  ESC or q     Close the preview, back to the tree",
     "",
     "Menu:",
     "  Tab          Switch focus between tree and menu",
     "  Enter        Run the highlighted action",
+    "  ESC          Cancel a prompt or confirmation",
+    "  ESC          On the main screen: show how to quit",
+    "  q            Quit is a menu action (with confirmation)",
     "",
     "Actions:",
     "  Create Directory  - Create and enter a new folder",
@@ -120,35 +129,123 @@ def draw_status(stdscr, message: str, location: str, scroll_info: str):
 
 
 def draw_help(stdscr):
+    """Modal help screen. Any key, including ESC, returns to the caller."""
     stdscr.clear()
     h, w = stdscr.getmaxyx()
     for i, line in enumerate(HELP_TEXT):
         if i + 1 >= h - 1:
             break
         put(stdscr, i + 1, 2, line, width=w - 4)
+    footer = "ESC: Back"
+    put(stdscr, h - 1, max(0, w - len(footer) - 2), footer, curses.A_DIM)
     stdscr.refresh()
     stdscr.getch()
 
 
+def confirm(stdscr, message: str) -> bool:
+    """Modal yes/no prompt. ESC or any key other than y/Y cancels."""
+    h, w = stdscr.getmaxyx()
+    y = h - 2
+    if y < 0:
+        return False
+    put(stdscr, y, 0, f"{message} [y/N]", width=w - 1)
+    stdscr.refresh()
+    return stdscr.getch() in (ord("y"), ord("Y"))
+
+
+def preview_screen(stdscr, path: Path):
+    """Read-only file preview modal. ESC or q returns to the caller.
+
+    Bounded read: only the first PREVIEW_MAX_BYTES are loaded and only
+    PREVIEW_MAX_LINES are kept, so a huge file costs a fixed amount of
+    memory and scrolling never rescans the file.
+    """
+    lines, error, truncated = read_preview(path)
+    lines = lines or []
+    total = len(lines)
+    top = 0
+
+    while True:
+        h, w = stdscr.getmaxyx()
+        if too_small(h, w):
+            draw_too_small(stdscr)
+            if stdscr.getch() in (ord("q"), 27):
+                return
+            continue
+
+        stdscr.clear()
+        put(stdscr, 0, 0, path.name, curses.A_BOLD, width=w - 1)
+        put(stdscr, 1, 0, str(path), curses.A_DIM, width=w - 1)
+
+        visible = max(1, h - 3)
+        if error:
+            put(stdscr, 2, 2, error, width=w - 4)
+        elif total == 0:
+            put(stdscr, 2, 2, "(empty file)", width=w - 4)
+        else:
+            top = max(0, min(top, max(0, total - visible)))
+            for i, line in enumerate(lines[top:top + visible]):
+                put(stdscr, 2 + i, 0, line, width=w - 1)
+            end = min(top + visible, total)
+            suffix = "+" if truncated else ""
+            pos = f"lines {top + 1}-{end}/{total}{suffix}"
+            put(stdscr, h - 1, max(0, w - len(pos) - 2), pos, curses.A_DIM)
+
+        if error or total == 0:
+            put(stdscr, h - 1, max(0, w - 11), "ESC: Back", curses.A_DIM)
+        else:
+            put(stdscr, h - 1, 0, "ESC/q: Back", curses.A_DIM, width=w - 1)
+        stdscr.refresh()
+
+        key = stdscr.getch()
+        if key in (27, ord("q")):
+            return
+        if error or total == 0:
+            continue
+        if key == curses.KEY_DOWN:
+            top += 1
+        elif key == curses.KEY_UP:
+            top = max(0, top - 1)
+        elif key == curses.KEY_NPAGE:
+            top += visible
+        elif key == curses.KEY_PPAGE:
+            top = max(0, top - visible)
+        elif key == curses.KEY_HOME:
+            top = 0
+        elif key == curses.KEY_END:
+            top = max(0, total - visible)
+
+
 def prompt(stdscr, message: str) -> str:
+    """Single line input. ESC cancels and returns an empty string."""
     h, w = stdscr.getmaxyx()
     y = h - 2
     if y < 0:
         return ""
 
-    put(stdscr, y, 0, message, width=w - 1)
-    x = min(len(message), max(0, w - 2))
-    stdscr.move(y, x)
-    stdscr.refresh()
+    buf: list[str] = []
+    while True:
+        h, w = stdscr.getmaxyx()
+        if y >= h:
+            return ""
+        line = message + "".join(buf)
+        put(stdscr, y, 0, line, width=w - 1)
+        put(stdscr, y, min(len(line), w - 2), " ", curses.A_REVERSE)
+        stdscr.move(y, min(len(line), w - 2))
+        stdscr.refresh()
 
-    curses.echo()
-    try:
-        value = stdscr.getstr(y, x, max(1, w - x - 1)).decode().strip()
-    except curses.error:
-        value = ""
-    finally:
-        curses.noecho()
-    return value
+        key = stdscr.getch()
+        if key in (10, 13):
+            return "".join(buf).strip()
+        if key == 27:
+            put(stdscr, y, 0, " " * (w - 1))
+            return ""
+        if key in (curses.KEY_BACKSPACE, 127, 8):
+            buf.pop()
+        elif key == curses.KEY_DC and buf:
+            buf.pop()
+        elif 32 <= key < 127 and len(buf) < max(1, w - len(message) - 2):
+            buf.append(chr(key))
 
 
 def location_label(root: Path, current: Path) -> str:
@@ -202,6 +299,11 @@ def tui_main(stdscr):
     try:
         curses.mousemask(curses.ALL_MOUSE_EVENTS)
     except curses.error:
+        pass
+    try:
+        # Short ESC delay: bare ESC answers fast, arrow keys still assemble.
+        curses.set_escdelay(25)
+    except (curses.error, AttributeError):
         pass
     stdscr.keypad(True)
 
@@ -262,6 +364,9 @@ def tui_main(stdscr):
             elif key == curses.KEY_MOUSE:
                 top = handle_mouse(stdscr, top)
 
+            elif key == 27:  # bare ESC on the main screen never quits
+                message = "Press q from the menu to quit"
+
             elif focus == "tree":
                 if key == curses.KEY_UP:
                     cursor -= 1
@@ -291,6 +396,10 @@ def tui_main(stdscr):
                         state.path_stack = stack_for(root, target)
                         expanded.add(target)
                         desired = target
+                elif key == ord("v") and rows and not rows[cursor].is_dir:
+                    saved = (cursor, top, focus, list(state.path_stack))
+                    preview_screen(stdscr, rows[cursor].path)
+                    cursor, top, focus, state.path_stack = saved
 
             else:  # menu focus
                 if key == curses.KEY_UP and selected > 0:
@@ -303,8 +412,11 @@ def tui_main(stdscr):
                     top += 5
                 elif key in (10, 13):
                     if MENU_ITEMS[selected] == "Quit":
-                        break
-                    run_action(stdscr, current, selected)
+                        if confirm(stdscr, "Quit KTrex?"):
+                            break
+                        message = "Quit cancelled"
+                        continue
+                    message = run_action(stdscr, current, selected)
                     desired = state.path_stack[-1]
     finally:
         try:

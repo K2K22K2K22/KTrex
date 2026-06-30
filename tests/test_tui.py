@@ -15,12 +15,20 @@ from ktrex.tui import (
 
 
 class FakeScreen:
-    """Minimal stand-in for a curses window, with real edge behaviour."""
+    """Minimal stand-in for a curses window, with real edge behaviour.
 
-    def __init__(self, h: int = 24, w: int = 80):
+    ``frames`` records one list per ``clear()`` (one TUI frame), each entry
+    ``(y, x, text, attr)``. ``keys`` feeds ``getch()``; an empty queue
+    returns ESC so loops terminate instead of hanging tests.
+    """
+
+    def __init__(self, h: int = 24, w: int = 80, keys: list[int] | None = None):
         self.h = h
         self.w = w
         self.writes: list[tuple[int, int, str]] = []
+        self.frames: list[list[tuple[int, int, str, int]]] = []
+        self.keys: list[int] = list(keys or [])
+        self._frame = None
 
     def getmaxyx(self):
         return (self.h, self.w)
@@ -30,7 +38,26 @@ class FakeScreen:
             raise curses.error("out of bounds")
         if y == self.h - 1 and x + min(n, len(text)) >= self.w:
             raise curses.error("bottom right corner")
-        self.writes.append((y, x, text[:n]))
+        chunk = text[:n]
+        self.writes.append((y, x, chunk))
+        if self._frame is not None:
+            self._frame.append((y, x, chunk, attr))
+
+    def clear(self):
+        self._frame = []
+        self.frames.append(self._frame)
+
+    def refresh(self):
+        pass
+
+    def move(self, y, x):
+        pass
+
+    def keypad(self, value):
+        pass
+
+    def getch(self):
+        return self.keys.pop(0) if self.keys else 27
 
 
 def test_put_writes_inside(project):
@@ -125,3 +152,110 @@ def test_clamp_viewport():
     assert clamp_viewport(12, 0, 20, 5) == 8  # cursor pulls the view down
     assert clamp_viewport(0, 50, 20, 5) == 0  # top is clamped to the last page
     assert clamp_viewport(2, 10, 20, 5) == 2  # cursor above the top page
+
+
+def frame_text(frame) -> str:
+    return "\n".join(text for _, _, text, _ in frame)
+
+
+def reverse_rows(frame) -> list[int]:
+    return [y for y, x, _, attr in frame if x == 0 and attr == curses.A_REVERSE]
+
+
+def run_tui(monkeypatch, screen, escdelay_sink):
+    monkeypatch.setattr(curses, "curs_set", lambda *a: None)
+    monkeypatch.setattr(curses, "mousemask", lambda *a: (0, 0))
+    monkeypatch.setattr(curses, "set_escdelay", lambda v: escdelay_sink.append(v))
+    from ktrex.tui import tui_main
+
+    tui_main(screen)
+
+
+def test_main_screen_esc_does_not_quit_and_preview_keeps_selection(project, monkeypatch):
+    (project / "docs").mkdir()
+    (project / "readme.txt").write_text("hello preview")
+    escdelay = []
+    screen = FakeScreen(
+        24,
+        80,
+        keys=[
+            27,                    # ESC on main screen: must not exit
+            curses.KEY_DOWN,        # cursor moves to readme.txt
+            ord("v"),               # preview the file
+            27,                    # back from preview
+            9,                     # focus menu
+            *[curses.KEY_DOWN] * 8,  # walk to Quit
+            10,                    # Enter on Quit
+            ord("y"),              # confirm
+        ],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []  # every key was consumed, then quit confirmed
+    assert escdelay == [25]
+
+    # Main-screen ESC explained how to quit instead of exiting.
+    assert "Press q from the menu to quit" in frame_text(screen.frames[1])
+
+    # Frame 3 is the preview: filename, path and content are on screen.
+    preview = frame_text(screen.frames[3])
+    assert "readme.txt" in preview
+    assert "hello preview" in preview
+
+    # Selection before the preview and after returning is identical.
+    assert reverse_rows(screen.frames[2]) == [2]
+    assert reverse_rows(screen.frames[4]) == [2]
+
+    # The confirmation dialog appeared and was accepted.
+    assert "Quit KTrex? [y/N]" in frame_text(screen.frames[13])
+
+
+def test_menu_help_returns_with_esc(project, monkeypatch):
+    (project / "docs").mkdir()
+    escdelay = []
+    # Help sits at index 7, Quit at 8: one step down after returning.
+    screen = FakeScreen(
+        24,
+        80,
+        keys=[
+            9,                     # focus menu
+            *[curses.KEY_DOWN] * 7,  # Help
+            10,                    # open Help
+            27,                    # ESC returns from Help
+            curses.KEY_DOWN,       # Quit
+            10,
+            ord("y"),
+        ],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    texts = [frame_text(f) for f in screen.frames]
+    assert any("Interactive Directory Builder" in t for t in texts)
+
+
+def test_prompt_esc_via_menu_creates_nothing(project, monkeypatch):
+    escdelay = []
+    before = sorted(p.name for p in project.iterdir())
+    screen = FakeScreen(
+        24,
+        80,
+        keys=[
+            9,                     # focus menu
+            10,                    # Create Directory
+            27,                    # ESC cancels the prompt
+            *[curses.KEY_DOWN] * 8,
+            10,
+            ord("y"),
+        ],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    assert sorted(p.name for p in project.iterdir()) == before
+    from ktrex import state
+
+    assert state.history == []
