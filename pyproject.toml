@@ -1,6 +1,6 @@
 [project]
 name = "KTrex"
-version = "0.1.69"
+version = "0.2.0"
 description = "Interactive terminal-based directory structure builder"
 readme = "README.md"
 license = { text = "MIT" }
@@ -9,6 +9,25 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = []
+keywords = ["directory", "structure", "scaffold", "tui", "curses", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/K2K22K2K22/KTrex"
+Repository = "https://github.com/K2K22K2K22/KTrex"
 
 [project.optional-dependencies]
 dev = ["pytest"]
