@@ -216,18 +216,38 @@ def preview_screen(stdscr, path: Path):
             top = max(0, total - visible)
 
 
-def prompt(stdscr, message: str) -> str:
-    """Single line input. ESC cancels and returns an empty string."""
+def prompt(stdscr, message: str) -> str | None:
+    """Single line input.
+
+    Returns the entered text (possibly empty) or ``None`` when ESC
+    cancelled the prompt, so callers never confuse the two.
+    """
     h, w = stdscr.getmaxyx()
     y = h - 2
     if y < 0:
-        return ""
+        return None
 
     buf: list[str] = []
+    pending = bytearray()  # bytes of a not yet complete UTF-8 sequence
+
+    def feed(byte: int) -> str:
+        pending.append(byte)
+        try:
+            ch = pending.decode("utf-8")
+        except UnicodeDecodeError:
+            if len(pending) > 4:  # not a valid sequence start, drop it
+                pending.clear()
+            return ""
+        pending.clear()
+        return ch
+
+    def max_len() -> int:
+        return max(1, w - len(message) - 2)
+
     while True:
         h, w = stdscr.getmaxyx()
         if y >= h:
-            return ""
+            return None
         line = message + "".join(buf)
         put(stdscr, y, 0, line, width=w - 1)
         put(stdscr, y, min(len(line), w - 2), " ", curses.A_REVERSE)
@@ -239,13 +259,20 @@ def prompt(stdscr, message: str) -> str:
             return "".join(buf).strip()
         if key == 27:
             put(stdscr, y, 0, " " * (w - 1))
-            return ""
+            return None
         if key in (curses.KEY_BACKSPACE, 127, 8):
-            buf.pop()
+            if pending:
+                pending.pop()
+            elif buf:
+                buf.pop()
         elif key == curses.KEY_DC and buf:
-            buf.pop()
-        elif 32 <= key < 127 and len(buf) < max(1, w - len(message) - 2):
+            buf.pop()  # the cursor always sits at the end of the buffer
+        elif 32 <= key < 127 and len(buf) < max_len():
             buf.append(chr(key))
+        elif 128 <= key <= 255:
+            ch = feed(key)
+            if ch and len(buf) < max_len():
+                buf.append(ch)
 
 
 def location_label(root: Path, current: Path) -> str:
@@ -433,6 +460,8 @@ def run_action(stdscr, current: Path, selected: int) -> str:
 
     if action == "Create Directory":
         name = prompt(stdscr, "Directory name: ")
+        if name is None:
+            return "Cancelled"
         if not name:
             return ""
         try:
@@ -446,6 +475,8 @@ def run_action(stdscr, current: Path, selected: int) -> str:
 
     if action == "Create File":
         name = prompt(stdscr, "File name: ")
+        if name is None:
+            return "Cancelled"
         if not name:
             return ""
         try:
@@ -463,6 +494,8 @@ def run_action(stdscr, current: Path, selected: int) -> str:
 
     if action == "Load Preset":
         value = prompt(stdscr, "Preset name or path: ")
+        if value is None:
+            return "Cancelled"
         if not value:
             return ""
         try:
@@ -473,6 +506,8 @@ def run_action(stdscr, current: Path, selected: int) -> str:
 
     if action == "Save Structure":
         path_str = prompt(stdscr, "Save to (path): ")
+        if path_str is None:
+            return "Cancelled"
         if not path_str:
             return ""
         try:
@@ -485,6 +520,8 @@ def run_action(stdscr, current: Path, selected: int) -> str:
 
     if action == "Load Structure":
         path_str = prompt(stdscr, "Load from (path): ")
+        if path_str is None:
+            return "Cancelled"
         if not path_str:
             return ""
         try:

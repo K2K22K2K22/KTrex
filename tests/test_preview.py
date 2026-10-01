@@ -184,7 +184,7 @@ def test_help_esc_returns(project):
 def test_prompt_esc_cancels_without_value(project):
     screen = FakeScreen(10, 40, keys=[27])
 
-    assert prompt(screen, "Name: ") == ""
+    assert prompt(screen, "Name: ") is None
     assert state.history == []
 
 
