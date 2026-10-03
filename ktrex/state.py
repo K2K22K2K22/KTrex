@@ -9,6 +9,7 @@ class Op(TypedDict, total=False):
     created: bool
     mtime: float
     size: int
+    ident: dict[str, int] | None
 
 # Root directory of the session
 root_dir: Path | None = None

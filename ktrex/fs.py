@@ -1,11 +1,18 @@
 """Filesystem operations for KTrex.
 
 Operations record enough metadata to validate undo safely: operation type,
-target, whether it was created by KTrex, and optional identity. Undo refuses to
-remove non-empty directories, refuses to remove a replacement/external change,
-and never drops history on a failed undo.
+target, whether it was created by KTrex, initial mtime/size, and an lstat
+identity (device, inode, file type). Undo refuses to remove non-empty
+directories, refuses anything whose identity or metadata no longer matches
+the recorded operation, and never drops history on a failed undo.
+
+Identity is a strong hint, not a proof: inode numbers can be reused after
+deletion and some filesystems report st_ino == 0. On those, undo falls back
+to file type plus mtime/size and stays conservative.
 """
 
+import os
+import stat
 from pathlib import Path
 
 from . import state
@@ -53,6 +60,32 @@ def _op_stat(p: Path) -> tuple[float, int]:
         return 0.0, -1
 
 
+def _identity(p: Path) -> dict | None:
+    """lstat identity of the directory entry itself, never its target."""
+    try:
+        st = p.lstat()
+    except OSError:
+        return None
+    return {"dev": st.st_dev, "ino": st.st_ino, "mode": stat.S_IFMT(st.st_mode)}
+
+
+def _identity_matches(op: state.Op, cur: os.stat_result) -> bool:
+    """Compare a recorded operation identity against a fresh lstat result.
+
+    A missing record (older entries) or a filesystem without inode support
+    (st_ino == 0) degrades to type-only checking; mtime/size are checked
+    separately for files.
+    """
+    ident = op.get("ident")
+    if not ident:
+        return True
+    if cur.st_dev != ident["dev"]:
+        return False
+    if ident["ino"] and cur.st_ino and cur.st_ino != ident["ino"]:
+        return False
+    return stat.S_IFMT(cur.st_mode) == ident["mode"]
+
+
 def create_dir(base: Path, name: str) -> Path | None:
     validate_name(name)
     target = resolve_target(base, name)
@@ -62,7 +95,14 @@ def create_dir(base: Path, name: str) -> Path | None:
     target.mkdir()
     mtime, size = _op_stat(target)
     state.history.append(
-        {"op": "dir", "path": target, "created": True, "mtime": mtime, "size": size}
+        {
+            "op": "dir",
+            "path": target,
+            "created": True,
+            "mtime": mtime,
+            "size": size,
+            "ident": _identity(target),
+        }
     )
     return target
 
@@ -76,12 +116,26 @@ def create_file(base: Path, name: str) -> Path | None:
     target.touch()
     mtime, size = _op_stat(target)
     state.history.append(
-        {"op": "file", "path": target, "created": True, "mtime": mtime, "size": size}
+        {
+            "op": "file",
+            "path": target,
+            "created": True,
+            "mtime": mtime,
+            "size": size,
+            "ident": _identity(target),
+        }
     )
     return target
 
 
 def undo_last() -> bool:
+    """Remove the most recent entry, but only if it is still ours.
+
+    The target must match the recorded identity (device, inode, file type).
+    A file must also keep its recorded mtime and size. Anything replaced,
+    modified, or substituted with a symlink is left alone and stays in the
+    history. A target that vanished on its own is dropped cleanly.
+    """
     if not state.history:
         return False
 
@@ -89,17 +143,25 @@ def undo_last() -> bool:
     p = op.get("path")
     if p is None:
         return False
-    op_type = op.get("op")
 
-    if p.is_symlink():
-        try:
-            p.unlink()
-            return True
-        except (FileNotFoundError, OSError):
-            state.history.append(op)
-            return False
+    try:
+        cur = p.lstat()
+    except FileNotFoundError:
+        return True  # already gone: nothing to remove, history stays correct
+    except OSError:
+        state.history.append(op)
+        return False
 
-    if p.is_file():
+    if not _identity_matches(op, cur):
+        state.history.append(op)
+        return False
+
+    if stat.S_ISLNK(cur.st_mode):
+        # KTrex never creates symlinks, so a symlink here is a replacement.
+        state.history.append(op)
+        return False
+
+    if stat.S_ISREG(cur.st_mode):
         mtime, size = _op_stat(p)
         if mtime != op.get("mtime", -1) or size != op.get("size", -2):
             state.history.append(op)
@@ -107,59 +169,76 @@ def undo_last() -> bool:
         try:
             p.unlink()
             return True
-        except (FileNotFoundError, OSError):
+        except FileNotFoundError:
+            return True
+        except OSError:
             state.history.append(op)
             return False
 
-    if p.is_dir():
-        if op_type != "dir":
+    if stat.S_ISDIR(cur.st_mode):
+        if op.get("op") != "dir":
             state.history.append(op)
             return False
         try:
             if any(p.iterdir()):
                 state.history.append(op)
                 return False
-        except (FileNotFoundError, OSError):
-            state.history.append(op)
-            return False
-        try:
             p.rmdir()
             return True
-        except (FileNotFoundError, OSError):
+        except FileNotFoundError:
+            return True
+        except OSError:
             state.history.append(op)
             return False
 
-    if not p.exists():
-        return True
-
+    # Sockets, fifos, devices: KTrex never creates these, never remove them.
     state.history.append(op)
     return False
 
 
 def remove_created(path: Path) -> bool:
-    try:
-        for i, op in enumerate(state.history):
-            if op.get("path") == path:
-                del state.history[i]
-                break
-    except (ValueError, IndexError):
-        pass
+    """Remove a path that KTrex created and recorded, used for rollback.
+
+    Returns False and keeps both the file and its history entry when the
+    entry is unknown, was replaced, or can no longer be removed safely.
+    """
+    op = None
+    for i, item in enumerate(state.history):
+        if item.get("path") == path:
+            op = state.history.pop(i)
+            break
+
+    if op is None:
+        return False  # never delete anything KTrex did not record
 
     try:
-        if path.is_symlink():
+        cur = path.lstat()
+    except FileNotFoundError:
+        return True  # already gone
+    except OSError:
+        state.history.append(op)
+        return False
+
+    if not _identity_matches(op, cur):
+        state.history.append(op)
+        return False
+
+    try:
+        if stat.S_ISREG(cur.st_mode):
+            mtime, size = _op_stat(path)
+            if mtime != op.get("mtime", -1) or size != op.get("size", -2):
+                state.history.append(op)
+                return False  # content changed after creation: not ours to drop
             path.unlink()
             return True
-        if path.is_file():
-            path.unlink()
-            return True
-        if path.is_dir():
-            try:
-                if any(path.iterdir()):
-                    return False
-            except (FileNotFoundError, OSError):
+        if stat.S_ISDIR(cur.st_mode):
+            if any(path.iterdir()):
+                state.history.append(op)
                 return False
             path.rmdir()
             return True
+        state.history.append(op)
         return False
     except (FileNotFoundError, OSError):
+        state.history.append(op)
         return False
