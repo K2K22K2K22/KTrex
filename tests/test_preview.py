@@ -1,4 +1,3 @@
-import builtins
 import curses
 import os
 from pathlib import Path
@@ -84,35 +83,27 @@ def test_preview_unreadable_file(project):
 
 
 def test_preview_large_file_bounded_read(project, monkeypatch):
-    """The reader may ask for max_bytes + 1, never the whole file."""
+    """Reads are chunked and stop at max_bytes + 1, never the whole file."""
+    path = project / "huge.txt"
+    with path.open("wb") as fh:
+        fh.write(b"a" * (PREVIEW_MAX_BYTES + 5_000_000))
 
-    class FakeFile:
-        def __init__(self):
-            self.reads = []
+    sizes = []
+    real_read = os.read
 
-        def read(self, n=-1):
-            self.reads.append(n)
-            return b"a" * (n if n >= 0 else 10_000_000)
+    def spy_read(fd, n):
+        sizes.append(n)
+        return real_read(fd, n)
 
-        def __enter__(self):
-            return self
+    monkeypatch.setattr("ktrex.preview.os.read", spy_read)
 
-        def __exit__(self, *exc):
-            return False
+    lines, error, truncated = read_preview(path)
 
-    handle = FakeFile()
-
-    def fake_open(*args, **kwargs):
-        return handle
-
-    monkeypatch.setattr(builtins, "open", fake_open)
-
-    lines, error, truncated = read_preview(Path("/fake/huge.txt"))
-
-    assert handle.reads == [PREVIEW_MAX_BYTES + 1]
-    assert truncated is True
     assert error is None
+    assert truncated is True
     assert lines is not None and len(lines) <= PREVIEW_MAX_LINES
+    assert sizes and max(sizes) <= 65536  # chunked, never one giant request
+    assert sum(sizes) == PREVIEW_MAX_BYTES + 1  # exactly the bounded window
 
 
 def test_preview_truncates_and_flags_position(project):
@@ -261,3 +252,106 @@ def test_preview_refuses_symlink(project, tmp_path):
 
     assert lines is None
     assert error is not None and "Symlink" in error
+
+
+# --- race hardening -----------------------------------------------------------
+
+import errno
+
+
+def test_preview_refuses_symlink_to_directory(project, tmp_path):
+    outside = tmp_path / "dir"
+    outside.mkdir()
+    link = project / "ldir"
+    link.symlink_to(outside)
+
+    lines, error, truncated = read_preview(link)
+
+    assert lines is None
+    assert error is not None and "Symlink" in error
+
+
+def test_preview_refuses_a_real_directory(project):
+    lines, error, truncated = read_preview(project)
+
+    assert lines is None
+    assert error is not None and "regular file" in error
+
+
+def test_preview_rejects_identity_mismatch_in_fallback(project, monkeypatch, tmp_path):
+    """Without O_NOFOLLOW, a swap between lstat and open must be caught."""
+    path = project / "swap.txt"
+    path.write_text("harmless")
+    monkeypatch.setattr("ktrex.preview._HAS_NOFOLLOW", False)
+
+    real_fstat = os.fstat
+    real_lstat = os.lstat
+    opened = {}
+
+    def fake_lstat(p):
+        st = real_lstat(p)
+        opened["before"] = (st.st_dev, st.st_ino)
+        return st
+
+    def fake_fstat(fd):
+        st = real_fstat(fd)
+        # Simulate the entry being replaced: same file, forged identity.
+        class Shifted:
+            st_mode = st.st_mode
+            st_dev = st.st_dev
+            st_ino = st.st_ino + 1
+
+        return Shifted()
+
+    monkeypatch.setattr("ktrex.preview.os.lstat", fake_lstat)
+    monkeypatch.setattr("ktrex.preview.os.fstat", fake_fstat)
+
+    lines, error, truncated = read_preview(path)
+
+    assert lines is None
+    assert error is not None and "changed" in error.lower()
+
+
+def test_preview_descriptor_closed_on_all_paths(project, monkeypatch):
+    path = project / "closed.txt"
+    path.write_text("data")
+    closed = []
+    real_close = os.close
+
+    def spy_close(fd):
+        closed.append(fd)
+        return real_close(fd)
+
+    monkeypatch.setattr("ktrex.preview.os.close", spy_close)
+
+    read_preview(path)  # success path
+    read_preview(project)  # directory path (not a regular file)
+    read_preview(project / "missing.txt")  # error path
+
+    assert len(closed) >= 2  # success and directory paths closed their fd
+
+
+def test_preview_never_creates_history_or_writes(project):
+    path = project / "watched.txt"
+    path.write_text("stable")
+    before = path.read_bytes()
+    stamp = path.stat().st_mtime_ns
+
+    read_preview(path)
+    read_preview(project / "missing.txt")
+    read_preview(project)
+
+    assert path.read_bytes() == before
+    assert path.stat().st_mtime_ns == stamp
+    assert state.history == []
+
+
+def test_preview_invalid_utf8_is_replaced_safely(project):
+    path = project / "bad.txt"
+    path.write_bytes(b"ok\xff\xfeend")
+
+    lines, error, truncated = read_preview(path)
+
+    assert error is None
+    assert lines is not None
+    assert any("\ufffd" in line for line in lines)
