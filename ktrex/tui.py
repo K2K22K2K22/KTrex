@@ -158,11 +158,11 @@ def preview_screen(stdscr, path: Path):
 
     Bounded read: only the first PREVIEW_MAX_BYTES are loaded and only
     PREVIEW_MAX_LINES are kept, so a huge file costs a fixed amount of
-    memory and scrolling never rescans the file.
+    memory and scrolling never rescans the file. When a limit was hit the
+    footer says so and the total line count shows as unknown.
     """
-    lines, error, truncated = read_preview(path)
-    lines = lines or []
-    total = len(lines)
+    pv = read_preview(path)
+    total = len(pv.lines)
     top = 0
 
     while True:
@@ -174,24 +174,26 @@ def preview_screen(stdscr, path: Path):
             continue
 
         stdscr.clear()
-        put(stdscr, 0, 0, path.name, curses.A_BOLD, width=w - 1)
-        put(stdscr, 1, 0, str(path), curses.A_DIM, width=w - 1)
+        put(stdscr, 0, 0, pv.name, curses.A_BOLD, width=w - 1)
+        put(stdscr, 1, 0, pv.path, curses.A_DIM, width=w - 1)
 
         visible = max(1, h - 3)
-        if error:
-            put(stdscr, 2, 2, error, width=w - 4)
+        if pv.error:
+            put(stdscr, 2, 2, pv.error, width=w - 4)
         elif total == 0:
             put(stdscr, 2, 2, "(empty file)", width=w - 4)
         else:
             top = max(0, min(top, max(0, total - visible)))
-            for i, line in enumerate(lines[top:top + visible]):
+            for i, line in enumerate(pv.lines[top:top + visible]):
                 put(stdscr, 2 + i, 0, line, width=w - 1)
             end = min(top + visible, total)
-            suffix = "+" if truncated else ""
-            pos = f"lines {top + 1}-{end}/{total}{suffix}"
+            if pv.total_known:
+                pos = f"lines {top + 1}-{end}/{total}"
+            else:
+                pos = f"lines {top + 1}-{end}/{total}+ ({pv.reason})"
             put(stdscr, h - 1, max(0, w - len(pos) - 2), pos, curses.A_DIM)
 
-        if error or total == 0:
+        if pv.error or total == 0:
             put(stdscr, h - 1, max(0, w - 11), "ESC: Back", curses.A_DIM)
         else:
             put(stdscr, h - 1, 0, "ESC/q: Back", curses.A_DIM, width=w - 1)
@@ -200,7 +202,7 @@ def preview_screen(stdscr, path: Path):
         key = stdscr.getch()
         if key in (27, ord("q")):
             return
-        if error or total == 0:
+        if pv.error or total == 0:
             continue
         if key == curses.KEY_DOWN:
             top += 1

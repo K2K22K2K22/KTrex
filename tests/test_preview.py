@@ -18,11 +18,12 @@ def test_preview_normal_utf8_file(project):
     path = project / "notes.txt"
     path.write_text("héllo wörld\n日本語 line\nthird\n", encoding="utf-8")
 
-    lines, error, truncated = read_preview(path)
+    pv = read_preview(path)
 
-    assert error is None
-    assert truncated is False
-    assert lines == ["héllo wörld", "日本語 line", "third"]
+    assert pv.error == ""
+    assert pv.truncated is False
+    assert pv.total_known is True
+    assert pv.lines == ["héllo wörld", "日本語 line", "third"]
 
     screen = FakeScreen(10, 60, keys=[27])
     preview_screen(screen, path)
@@ -35,11 +36,12 @@ def test_preview_empty_file(project):
     path = project / "empty.txt"
     path.write_text("")
 
-    lines, error, truncated = read_preview(path)
+    pv = read_preview(path)
 
-    assert lines == []
-    assert error is None
-    assert truncated is False
+    assert pv.lines == []
+    assert pv.error == ""
+    assert pv.truncated is False
+    assert pv.total_known is True
 
     screen = FakeScreen(8, 40, keys=[27])
     preview_screen(screen, path)
@@ -50,11 +52,11 @@ def test_preview_binary_file(project):
     path = project / "blob.bin"
     path.write_bytes(b"\x00\x01\x02binary\xff")
 
-    lines, error, truncated = read_preview(path)
+    pv = read_preview(path)
 
-    assert lines is None
-    assert error is not None and "Binary" in error
-    assert truncated is False
+    assert pv.lines == []
+    assert "Binary" in pv.error
+    assert pv.truncated is False
 
     screen = FakeScreen(8, 40, keys=[27])
     preview_screen(screen, path)
@@ -62,10 +64,10 @@ def test_preview_binary_file(project):
 
 
 def test_preview_missing_file(project):
-    lines, error, truncated = read_preview(project / "nope.txt")
+    pv = read_preview(project / "nope.txt")
 
-    assert lines is None
-    assert error is not None and "Cannot read file" in error
+    assert pv.lines == []
+    assert "Cannot read file" in pv.error
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
@@ -74,12 +76,12 @@ def test_preview_unreadable_file(project):
     path.write_text("hidden")
     path.chmod(0o000)
     try:
-        lines, error, truncated = read_preview(path)
+        pv = read_preview(path)
     finally:
         path.chmod(0o644)
 
-    assert lines is None
-    assert error is not None and "Cannot read file" in error
+    assert pv.lines == []
+    assert "Cannot read file" in pv.error
 
 
 def test_preview_large_file_bounded_read(project, monkeypatch):
@@ -97,11 +99,12 @@ def test_preview_large_file_bounded_read(project, monkeypatch):
 
     monkeypatch.setattr("ktrex.preview.os.read", spy_read)
 
-    lines, error, truncated = read_preview(path)
+    pv = read_preview(path)
 
-    assert error is None
-    assert truncated is True
-    assert lines is not None and len(lines) <= PREVIEW_MAX_LINES
+    assert pv.error == ""
+    assert pv.truncated is True
+    assert pv.total_known is False
+    assert len(pv.lines) <= PREVIEW_MAX_LINES
     assert sizes and max(sizes) <= 65536  # chunked, never one giant request
     assert sum(sizes) == PREVIEW_MAX_BYTES + 1  # exactly the bounded window
 
@@ -110,11 +113,12 @@ def test_preview_truncates_and_flags_position(project):
     path = project / "big.txt"
     path.write_text("\n".join(f"L{i}" for i in range(3000)))
 
-    lines, error, truncated = read_preview(path)
+    pv = read_preview(path)
 
-    assert error is None
-    assert truncated is True
-    assert lines is not None and len(lines) == PREVIEW_MAX_LINES
+    assert pv.error == ""
+    assert pv.truncated is True
+    assert pv.reason == "line limit"
+    assert len(pv.lines) == PREVIEW_MAX_LINES
 
     screen = FakeScreen(12, 60, keys=[27])
     preview_screen(screen, path)
@@ -248,10 +252,10 @@ def test_preview_refuses_symlink(project, tmp_path):
     link = project / "link.txt"
     link.symlink_to(target)
 
-    lines, error, truncated = read_preview(link)
+    pv = read_preview(link)
 
-    assert lines is None
-    assert error is not None and "Symlink" in error
+    assert pv.lines == []
+    assert "Symlink" in pv.error
 
 
 # --- race hardening -----------------------------------------------------------
@@ -265,17 +269,17 @@ def test_preview_refuses_symlink_to_directory(project, tmp_path):
     link = project / "ldir"
     link.symlink_to(outside)
 
-    lines, error, truncated = read_preview(link)
+    pv = read_preview(link)
 
-    assert lines is None
-    assert error is not None and "Symlink" in error
+    assert pv.lines == []
+    assert "Symlink" in pv.error
 
 
 def test_preview_refuses_a_real_directory(project):
-    lines, error, truncated = read_preview(project)
+    pv = read_preview(project)
 
-    assert lines is None
-    assert error is not None and "regular file" in error
+    assert pv.lines == []
+    assert "regular file" in pv.error
 
 
 def test_preview_rejects_identity_mismatch_in_fallback(project, monkeypatch, tmp_path):
@@ -306,10 +310,10 @@ def test_preview_rejects_identity_mismatch_in_fallback(project, monkeypatch, tmp
     monkeypatch.setattr("ktrex.preview.os.lstat", fake_lstat)
     monkeypatch.setattr("ktrex.preview.os.fstat", fake_fstat)
 
-    lines, error, truncated = read_preview(path)
+    pv = read_preview(path)
 
-    assert lines is None
-    assert error is not None and "changed" in error.lower()
+    assert pv.lines == []
+    assert "changed" in pv.error.lower()
 
 
 def test_preview_descriptor_closed_on_all_paths(project, monkeypatch):
@@ -350,8 +354,111 @@ def test_preview_invalid_utf8_is_replaced_safely(project):
     path = project / "bad.txt"
     path.write_bytes(b"ok\xff\xfeend")
 
-    lines, error, truncated = read_preview(path)
+    pv = read_preview(path)
 
-    assert error is None
-    assert lines is not None
-    assert any("\ufffd" in line for line in lines)
+    assert pv.error == ""
+    assert any("\ufffd" in line for line in pv.lines)
+
+
+# --- limits, accuracy and line-ending behavior --------------------------------
+
+from ktrex.preview import Preview
+
+
+def test_byte_limit_truncation_with_few_long_lines(project):
+    path = project / "few.txt"
+    path.write_text("x" * 4000 + "\n" + "y" * 4000)
+
+    pv = read_preview(path, max_bytes=1000, max_lines=2000)
+
+    assert pv.error == ""
+    assert pv.truncated is True
+    assert pv.reason == "byte limit"
+    assert pv.total_known is False
+
+
+def test_both_limits_reached_reports_byte_limit(project):
+    path = project / "both.txt"
+    path.write_text("\n".join("x" * 200 for _ in range(500)))
+
+    pv = read_preview(path, max_bytes=1000, max_lines=10)
+
+    assert pv.truncated is True
+    assert pv.reason == "byte limit"  # the byte window cut first
+    assert len(pv.lines) == 5  # 5 x 200 bytes fill the 1000-byte window
+
+
+def test_single_line_larger_than_the_whole_limit(project):
+    path = project / "one-line.txt"
+    path.write_text("z" * 10_000)
+
+    pv = read_preview(path, max_bytes=1000, max_lines=2000)
+
+    assert pv.truncated is True
+    assert pv.reason == "byte limit"
+    assert pv.total_known is False
+    assert pv.lines and pv.lines[0].startswith("z")
+
+
+def test_final_line_without_newline_is_kept(project):
+    path = project / "tail.txt"
+    path.write_text("first\nsecond")
+
+    pv = read_preview(path)
+
+    assert pv.error == ""
+    assert pv.lines == ["first", "second"]
+    assert pv.total_known is True
+
+
+def test_crlf_files_split_cleanly(project):
+    path = project / "crlf.txt"
+    path.write_bytes(b"alpha\r\nbeta\r\ngamma\r\n")
+
+    pv = read_preview(path)
+
+    assert pv.lines == ["alpha", "beta", "gamma"]
+
+
+def test_footer_reports_unknown_total_with_reason(project):
+    path = project / "big.txt"
+    path.write_text("\n".join(f"L{i}" for i in range(3000)))
+
+    screen = FakeScreen(12, 70, keys=[27])
+    preview_screen(screen, path)
+
+    footer = "\n".join(text for y, x, text, _ in screen.frames[0] if y == 11)
+    assert "/2000+ (line limit)" in footer
+    assert "/3000" not in footer  # partial count never shown as the total
+
+
+def test_footer_reports_complete_total_when_known(project):
+    path = project / "small.txt"
+    path.write_text("a\nb\nc\n")
+
+    screen = FakeScreen(12, 70, keys=[27])
+    preview_screen(screen, path)
+
+    footer = "\n".join(text for y, x, text, _ in screen.frames[0] if y == 11)
+    assert "lines 1-3/3" in footer
+
+
+def test_scrolling_works_when_truncated(project):
+    path = project / "many.txt"
+    path.write_text("\n".join(f"L{i}" for i in range(3000)))
+
+    screen = FakeScreen(12, 40, keys=[curses.KEY_END, curses.KEY_UP, 27])
+    preview_screen(screen, path)
+
+    last = frame_text(screen.frames[-1])
+    assert "L1999" in last or "L199" in last  # scrolled within retained lines
+
+
+def test_preview_model_defaults(project):
+    pv = Preview(name="f.txt", path="/tmp/f.txt")
+
+    assert pv.lines == []
+    assert pv.truncated is False
+    assert pv.reason == ""
+    assert pv.total_known is True
+    assert pv.error == ""
