@@ -259,3 +259,81 @@ def test_prompt_esc_via_menu_creates_nothing(project, monkeypatch):
     from ktrex import state
 
     assert state.history == []
+
+
+def test_function_keys_do_not_exit_or_act_as_esc(project, monkeypatch):
+    (project / "f.txt").write_text("x")
+    escdelay = []
+    # A function key on the main screen must be inert; arrows still navigate.
+    screen = FakeScreen(
+        24,
+        80,
+        keys=[
+            curses.KEY_F1,
+            curses.KEY_DOWN,  # cursor -> f.txt
+            ord("v"),
+            curses.KEY_F1,    # inert inside preview
+            27,               # back from preview
+            9,
+            *[curses.KEY_DOWN] * 8,
+            10,
+            ord("y"),
+        ],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    texts = [frame_text(f) for f in screen.frames]
+    assert any("Press q from the menu to quit" not in t for t in texts[:1])
+
+
+def test_resize_during_main_screen_keeps_state_valid(project, monkeypatch):
+    (project / "f.txt").write_text("x")
+    escdelay = []
+
+    class ShrinkingScreen(FakeScreen):
+        def getch(self):
+            key = super().getch()
+            self.h, self.w = 12, 60
+            return key
+
+    screen = ShrinkingScreen(
+        24,
+        80,
+        keys=[curses.KEY_DOWN, 27, 9, *[curses.KEY_DOWN] * 8, 10, ord("y")],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    last = screen.frames[-1]
+    assert all(0 <= y < 12 and 0 <= x < 60 for y, x, _, _ in last)
+
+
+def test_esc_then_arrow_keys_still_navigate(project, monkeypatch):
+    (project / "a.txt").write_text("x")
+    (project / "b.txt").write_text("y")
+    escdelay = []
+    # ESC on the main screen shows a message; the next arrows move the cursor.
+    screen = FakeScreen(
+        24,
+        80,
+        keys=[27, curses.KEY_DOWN, 27, 9, *[curses.KEY_DOWN] * 8, 10, ord("y")],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    # frame 2 is the draw after the first arrow: cursor on row y=2
+    assert reverse_rows(screen.frames[2]) == [2]
+
+
+def test_missing_curses_reports_a_useful_error(project, monkeypatch, capsys):
+    import ktrex.main as main_mod
+
+    monkeypatch.setattr(main_mod, "curses", None)
+
+    assert main_mod.main([]) == 1
+    out = capsys.readouterr().out
+    assert "curses" in out

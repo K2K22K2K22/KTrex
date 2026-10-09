@@ -1,11 +1,14 @@
 import argparse
-import curses
 import sys
 from pathlib import Path
 
 from ktrex import __version__, state
 from ktrex.presets import builtin_presets, load_preset
-from ktrex.tui import tui_main
+
+try:
+    import curses
+except ImportError:  # Windows ships Python without curses
+    curses = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,6 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.apply and args.directory is None:
         args.directory = "."
 
+    if not args.list_presets and not args.apply and curses is None:
+        print("Error: KTrex needs the curses module, which this Python lacks.")
+        print("On Windows, install a curses package such as windows-curses.")
+        return 1
+
     try:
         root = prepare_root(args.directory)
     except ValueError as e:
@@ -76,6 +84,10 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"Applied preset '{args.apply}' to {root}")
         return 0
+
+    assert curses is not None  # interactive mode returned earlier when missing
+
+    from ktrex.tui import tui_main
 
     curses.wrapper(tui_main)
     return 0

@@ -125,3 +125,12 @@ def test_menu_cancelled_preset_application_leaves_state_untouched(project, monke
 
     assert list(project.iterdir()) == []
     assert state.history == []
+
+
+def test_prompt_ignores_arrow_and_function_keys(project):
+    keys = [curses.KEY_UP, curses.KEY_DOWN, curses.KEY_F1, ord("a"), 10]
+
+    screen = FakeScreen(10, 40, keys=keys)
+
+    assert prompt(screen, "Name: ") == "a"
+    assert screen.keys == []
