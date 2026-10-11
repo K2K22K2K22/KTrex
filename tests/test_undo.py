@@ -258,3 +258,142 @@ def test_identity_uses_lstat_not_stat(project, tmp_path):
     assert link_ident is not None
     # lstat sees the link itself, never the target.
     assert stat.S_IFMT(link_ident["mode"]) == stat.S_IFLNK
+
+
+# --- rollback failure reporting ----------------------------------------------
+
+from ktrex.tree import RollbackError
+
+
+def test_apply_failure_rolls_back_in_reverse_and_keeps_error(project, monkeypatch):
+    import ktrex.tree as tree_mod
+
+    real = tree_mod.create_file
+
+    def failing(base, name):
+        if name == "boom":
+            raise OSError("disk full")
+        return real(base, name)
+
+    monkeypatch.setattr(tree_mod, "create_file", failing)
+    tree = {
+        "name": "root",
+        "type": "dir",
+        "children": [
+            {"name": "d", "type": "dir", "children": [{"name": "x.txt", "type": "file"}]},
+            {"name": "boom", "type": "file"},
+        ],
+    }
+
+    with pytest.raises(OSError, match="disk full"):
+        apply_tree(project, tree)
+
+    assert list(project.iterdir()) == []
+    assert state.history == []
+
+
+def test_rollback_leftovers_are_reported_with_original_error(project, monkeypatch):
+    import ktrex.tree as tree_mod
+    from ktrex.fs import remove_created
+
+    real_create = tree_mod.create_file
+    real_remove = tree_mod.remove_created
+
+    def failing(base, name):
+        if name == "boom":
+            raise OSError("disk full")
+        return real_create(base, name)
+
+    def refusing(path):
+        if path.name == "stuck.txt":
+            return False
+        return real_remove(path)
+
+    monkeypatch.setattr(tree_mod, "create_file", failing)
+    monkeypatch.setattr(tree_mod, "remove_created", refusing)
+    tree = {
+        "name": "root",
+        "type": "dir",
+        "children": [
+            {"name": "stuck.txt", "type": "file"},
+            {"name": "boom", "type": "file"},
+        ],
+    }
+
+    with pytest.raises(RollbackError) as exc_info:
+        apply_tree(project, tree)
+
+    err = exc_info.value
+    assert isinstance(err.__cause__, OSError)
+    assert "disk full" in str(err.__cause__)
+    assert err.leftover_paths == [project / "stuck.txt"]
+    assert "stuck.txt" in str(err)
+    assert (project / "stuck.txt").exists()  # artifact remains, user is told
+    assert state.history  # its history entry stays for manual undo
+
+
+def test_nonempty_created_dir_blocks_rollback_and_is_reported(project, monkeypatch):
+    import ktrex.tree as tree_mod
+
+    real_create = tree_mod.create_file
+
+    def hook(base, name):
+        result = real_create(base, name)
+        if name == "filler.txt":
+            # Another process drops a file into the directory meanwhile.
+            (base / "inner.txt").write_text("user data")
+        if name == "boom":
+            raise OSError("disk full")
+        return result
+
+    monkeypatch.setattr(tree_mod, "create_file", hook)
+    tree = {
+        "name": "root",
+        "type": "dir",
+        "children": [
+            {
+                "name": "outer",
+                "type": "dir",
+                "children": [
+                    {"name": "filler.txt", "type": "file"},
+                    {"name": "boom", "type": "file"},
+                ],
+            }
+        ],
+    }
+
+    with pytest.raises(RollbackError) as exc_info:
+        apply_tree(project, tree)
+
+    err = exc_info.value
+    assert (project / "outer" / "inner.txt").exists()  # user data preserved
+    assert project / "outer" in err.leftover_paths
+    assert isinstance(err.__cause__, OSError)
+
+
+def test_rollback_history_consistent_after_failed_apply(project, monkeypatch):
+    import ktrex.tree as tree_mod
+
+    real = tree_mod.create_file
+
+    def failing(base, name):
+        if name == "boom":
+            raise OSError("disk full")
+        return real(base, name)
+
+    monkeypatch.setattr(tree_mod, "create_file", failing)
+    tree = {
+        "name": "root",
+        "type": "dir",
+        "children": [
+            {"name": "ok.txt", "type": "file"},
+            {"name": "boom", "type": "file"},
+        ],
+    }
+
+    with pytest.raises(OSError):
+        apply_tree(project, tree)
+
+    # Fully rolled back: no leftovers, no history, nothing on disk.
+    assert state.history == []
+    assert list(project.iterdir()) == []

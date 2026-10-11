@@ -9,6 +9,18 @@ class InvalidTree(ValueError):
     """Raised when a structure or preset is not a valid tree."""
 
 
+class RollbackError(Exception):
+    """A failed apply left artifacts behind after an incomplete rollback.
+
+    Carries the original application error as __cause__ and lists the
+    paths that could not be removed in ``leftover_paths``.
+    """
+
+    def __init__(self, message: str, leftover_paths: list[Path]):
+        super().__init__(message)
+        self.leftover_paths = leftover_paths
+
+
 def build_tree(path: Path, depth: int = 0) -> dict:
     # Convert filesystem into a serializable tree structure.
     # Symlinked directories are listed but not followed, unreadable
@@ -69,20 +81,41 @@ def validate_tree(node, depth: int = 0) -> None:
         seen.add(child["name"])
 
 
+def _rollback(created: list[Path]) -> list[Path]:
+    """Undo created paths in reverse order; report anything that survived.
+
+    Only empty directories and unmodified files created by the failed
+    operation are removed. Failures keep the history entry, so the user
+    can still undo manually, and the surviving paths are returned.
+    """
+    leftovers: list[Path] = []
+    for path in reversed(created):
+        if not remove_created(path):
+            leftovers.append(path)
+    return leftovers
+
+
 def apply_tree(base: Path, tree: dict) -> list[Path]:
     """Create the missing entries of tree under base and return them.
 
     The whole tree is validated first, so a bad entry never leaves a half
     written structure behind. Entries created by this call are removed
-    again if a later one fails.
+    again if a later one fails. When rollback cannot remove an entry, for
+    example because the directory gained content meanwhile, RollbackError
+    is raised from the original error and names the surviving paths.
     """
     validate_tree(tree)
     created: list[Path] = []
     try:
         _apply_children(base, tree.get("children") or [], created)
-    except BaseException:
-        for path in reversed(created):
-            remove_created(path)
+    except BaseException as original:
+        leftovers = _rollback(created)
+        if leftovers:
+            names = ", ".join(str(p) for p in leftovers)
+            raise RollbackError(
+                f"apply failed ({original}) and rollback could not remove: {names}",
+                leftovers,
+            ) from original
         raise
     return created
 
