@@ -110,13 +110,24 @@ def draw_tree(stdscr, root: Path, rows, current: Path, cursor: int, top: int, tr
         put(stdscr, 1 + i, 0, format_row(row, current), attr, width=tree_width)
 
 
-def draw_menu(stdscr, selected: int, focus: str, menu_x: int, menu_width: int):
+def menu_offset(selected: int, offset: int, visible: int) -> int:
+    """Scroll offset keeping the selected menu item on screen."""
+    if visible <= 0:
+        return 0
+    if selected < offset:
+        return selected
+    if selected >= offset + visible:
+        return selected - visible + 1
+    return max(0, min(offset, len(MENU_ITEMS) - visible))
+
+
+def draw_menu(stdscr, selected: int, focus: str, menu_x: int, menu_width: int, offset: int = 0):
     put(stdscr, 0, menu_x, "Actions", curses.A_BOLD, width=menu_width)
-    for i, item in enumerate(MENU_ITEMS):
-        if 1 + i >= stdscr.getmaxyx()[0] - 1:
-            break
+    h = stdscr.getmaxyx()[0]
+    visible = max(1, h - 2)
+    for row, i in enumerate(range(offset, min(offset + visible, len(MENU_ITEMS)))):
         attr = curses.A_REVERSE if focus == "menu" and i == selected else curses.A_NORMAL
-        put(stdscr, 1 + i, menu_x, item, attr, width=menu_width)
+        put(stdscr, 1 + row, menu_x, MENU_ITEMS[i], attr, width=menu_width)
 
 
 def draw_status(stdscr, message: str, location: str, scroll_info: str):
@@ -342,6 +353,7 @@ def tui_main(stdscr):
     selected = 0
     cursor = 0
     top = 0
+    menu_top = 0
     focus = "tree"
     expanded: set[Path] = set()
     message = ""
@@ -380,7 +392,8 @@ def tui_main(stdscr):
 
             stdscr.clear()
             draw_tree(stdscr, root, rows, current, cursor, top, tree_width, focus)
-            draw_menu(stdscr, selected, focus, menu_x, menu_width)
+            menu_top = menu_offset(selected, menu_top, visible)
+            draw_menu(stdscr, selected, focus, menu_x, menu_width, menu_top)
             draw_status(stdscr, message, location_label(root, current), scroll_info)
             stdscr.refresh()
             message = ""
@@ -436,9 +449,9 @@ def tui_main(stdscr):
                 elif key == curses.KEY_DOWN and selected < len(MENU_ITEMS) - 1:
                     selected += 1
                 elif key == curses.KEY_PPAGE:
-                    top = max(0, top - 5)
+                    selected = max(0, selected - visible)
                 elif key == curses.KEY_NPAGE:
-                    top += 5
+                    selected = min(len(MENU_ITEMS) - 1, selected + visible)
                 elif key in (10, 13):
                     if MENU_ITEMS[selected] == "Quit":
                         if confirm(stdscr, "Quit KTrex?"):

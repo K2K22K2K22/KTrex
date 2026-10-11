@@ -184,7 +184,12 @@ def test_undo_refuses_when_identity_differs_but_metadata_matches(project, monkey
     # Forge a history entry whose identity points elsewhere, like a
     # same-size, same-mtime replacement with a different inode would.
     op = state.history[-1]
-    op["ident"] = {"dev": op["ident"]["dev"], "ino": op["ident"]["ino"] + 1, "mode": stat.S_IFREG}
+    old_ident = op.get("ident") or {}
+    op["ident"] = {
+        "dev": old_ident.get("dev", 0),
+        "ino": old_ident.get("ino", 0) + 1,
+        "mode": stat.S_IFREG,
+    }
 
     assert undo_last() is False
     assert f.exists()
@@ -196,7 +201,8 @@ def test_undo_falls_back_when_inodes_are_unsupported(project, monkeypatch):
     # Filesystems without inode support report st_ino == 0: undo must still
     # work through the metadata fallback.
     op = state.history[-1]
-    op["ident"] = {"dev": op["ident"]["dev"], "ino": 0, "mode": op["ident"]["mode"]}
+    old_ident = op.get("ident") or {}
+    op["ident"] = {"dev": old_ident.get("dev", 0), "ino": 0, "mode": old_ident.get("mode", 0)}
 
     assert undo_last() is True
     assert not f.exists()

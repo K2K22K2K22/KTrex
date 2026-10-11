@@ -337,3 +337,83 @@ def test_missing_curses_reports_a_useful_error(project, monkeypatch, capsys):
     assert main_mod.main([]) == 1
     out = capsys.readouterr().out
     assert "curses" in out
+
+
+def test_menu_offset_keeps_selection_visible():
+    from ktrex.tui import MENU_ITEMS, menu_offset
+
+    # 9 items, 4 visible: walking down drags the window along.
+    assert menu_offset(0, 0, 4) == 0
+    assert menu_offset(3, 0, 4) == 0
+    assert menu_offset(4, 0, 4) == 1
+    assert menu_offset(8, 1, 4) == 5
+    # Walking back up pulls it back.
+    assert menu_offset(4, 5, 4) == 4
+    assert menu_offset(0, 4, 4) == 0
+    # Degenerate terminals.
+    assert menu_offset(8, 0, 0) == 0
+    assert menu_offset(3, 0, len(MENU_ITEMS)) == 0
+
+
+def test_selected_menu_item_visible_on_short_terminal(project, monkeypatch):
+    (project / "f.txt").write_text("x")
+    escdelay = []
+    # 10 rows -> 8 visible menu slots; walk to Quit (index 8) and run it.
+    screen = FakeScreen(
+        10,
+        60,
+        keys=[9, *[curses.KEY_DOWN] * 8, 10, ord("y")],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    # The last frame before quit must show Quit highlighted on screen.
+    quit_rows = [
+        (y, x) for f in screen.frames for y, x, text, attr in f
+        if text == "Quit" and attr == curses.A_REVERSE
+    ]
+    assert quit_rows, "Quit was selected while completely invisible"
+
+
+def test_empty_project_renders(project, monkeypatch):
+    escdelay = []
+    screen = FakeScreen(24, 80, keys=[27, 9, *[curses.KEY_DOWN] * 8, 10, ord("y")])
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    assert any("Actions" in frame_text(f) for f in screen.frames)
+
+
+def test_unicode_and_long_filenames_render_safely(project, monkeypatch):
+    (project / "日本語ディレクトリ").mkdir()
+    (project / "日本語ディレクトリ" / "файл.txt").write_text("x")
+    (project / ("l" * 120 + ".txt")).write_text("x")
+    escdelay = []
+    screen = FakeScreen(24, 80, keys=[27, 9, *[curses.KEY_DOWN] * 8, 10, ord("y")])
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    last = screen.frames[-1]
+    assert all(0 <= x < 80 for _, x, _, _ in last)
+    assert all(0 <= y < 24 for y, _, _, _ in last)
+    texts = "\n".join(frame_text(f) for f in screen.frames)
+    assert "日本語ディレクトリ" in texts
+
+
+def test_menu_page_keys_move_selection(project, monkeypatch):
+    (project / "f.txt").write_text("x")
+    escdelay = []
+    # PPAGE from 0 clamps at 0, NPAGE jumps 22 -> clamps at Quit (8), run it.
+    screen = FakeScreen(
+        24,
+        80,
+        keys=[9, curses.KEY_PPAGE, curses.KEY_NPAGE, 10, ord("y")],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    assert any("Quit KTrex? [y/N]" in frame_text(f) for f in screen.frames)
