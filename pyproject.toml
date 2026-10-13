@@ -1,6 +1,6 @@
 [project]
 name = "KTrex"
-version = "0.2.5"
+version = "0.3.0"
 description = "Interactive terminal-based directory structure builder"
 readme = "README.md"
 license = { text = "MIT" }
