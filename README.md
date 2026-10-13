@@ -17,6 +17,8 @@ as a plain command line tool with no runtime dependencies.
 - Save the current tree to JSON and load it back later, or load a preset by name or file path
 - Presets and structures share one simple JSON format
 - Everything stays inside the project root; symlinks are never followed
+  (the final symlink check is atomic, parent directories cannot be made
+  fully race-free)
 - Works from the command line too: `ktrex --apply python_package my-lib`
 
 ## Requirements
@@ -97,10 +99,13 @@ cancels it).
 Press `v` on a file to read it without leaving KTrex or opening an editor:
 
 - Header shows the filename and full path, clipped to the terminal width
-- Footer shows `lines A-B/N`, or `N+` when the file was truncated by the limit
+- Footer shows `lines A-B/N` for a complete read, or `lines A-B/N+ (byte limit)`
+  or `(line limit)` when truncated; the partial count is never shown as the total
 - Empty files show a friendly note; binary files (containing NUL bytes) show a
   message instead of garbage; unreadable or missing files show the error
-- Symlinked files are not previewed, matching the tree's symlink policy
+- Symlinked files are not previewed, matching the tree's symlink policy; the
+  open itself refuses to follow a final symlink, and a file swapped between
+  validation and reading is refused by an identity check
 - Reading is bounded: at most 256 KiB and 2000 lines are held in memory, so a
   huge file previews instantly and scrolling never rescans the disk
 - Preview is strictly read-only; it never touches the file or the undo history
@@ -135,12 +140,16 @@ Preset name or path: /home/me/presets/rust_cli.json
 
 - Existing files are never overwritten
 - Non-empty directories are never deleted
-- Undo only reverts entries KTrex created, and refuses if the file changed
-  since creation
+- Undo only reverts entries KTrex created, and refuses when the entry was
+  replaced (different device or inode), a symlink was swapped in for it, or
+  the file changed since creation; the refused entry stays in the history
+- A target that vanished on its own is dropped from the history cleanly
 - Every path is checked to stay inside the project root
 - Symbolic links are listed but never followed
 - Unreadable directories render as a note instead of crashing
-- A failed apply rolls back, keeping disk and undo history in sync
+- A failed apply rolls back in reverse order, keeping disk and undo history
+  in sync; if a created directory gained content meanwhile, it is reported
+  as a leftover instead of being deleted
 
 ## Development
 
