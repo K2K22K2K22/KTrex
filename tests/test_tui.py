@@ -165,7 +165,9 @@ def reverse_rows(frame) -> list[int]:
 def run_tui(monkeypatch, screen, escdelay_sink):
     monkeypatch.setattr(curses, "curs_set", lambda *a: None)
     monkeypatch.setattr(curses, "mousemask", lambda *a: (0, 0))
-    monkeypatch.setattr(curses, "set_escdelay", lambda v: escdelay_sink.append(v))
+    # windows-curses has no set_escdelay; raising=False keeps the helper
+    # usable on every curses build.
+    monkeypatch.setattr(curses, "set_escdelay", lambda v: escdelay_sink.append(v), raising=False)
     from ktrex.tui import tui_main
 
     tui_main(screen)
@@ -425,14 +427,14 @@ from ktrex.tui import handle_mouse, tui_main
 
 
 def test_handle_mouse_scrolls_with_the_wheel(project, monkeypatch):
-    monkeypatch.setattr(
-        curses, "getmouse", lambda: (0, 0, 0, 0, curses.BUTTON4_PRESSED)
-    )
+    # Synthesized constants keep the test independent of what the local
+    # curses build happens to define.
+    monkeypatch.setattr(curses, "BUTTON4_PRESSED", 0o10000000, raising=False)
+    monkeypatch.setattr(curses, "BUTTON5_PRESSED", 0o20000000, raising=False)
+    monkeypatch.setattr(curses, "getmouse", lambda: (0, 0, 0, 0, 0o10000000))
     assert handle_mouse(None, 7) == 4
 
-    monkeypatch.setattr(
-        curses, "getmouse", lambda: (0, 0, 0, 0, curses.BUTTON5_PRESSED)
-    )
+    monkeypatch.setattr(curses, "getmouse", lambda: (0, 0, 0, 0, 0o20000000))
     assert handle_mouse(None, 7) == 10
 
 
@@ -462,7 +464,7 @@ def test_tui_runs_when_optional_terminal_features_are_unavailable(project, monke
 
     monkeypatch.setattr(curses, "curs_set", unavailable)
     monkeypatch.setattr(curses, "mousemask", unavailable)
-    monkeypatch.setattr(curses, "set_escdelay", unavailable)
+    monkeypatch.setattr(curses, "set_escdelay", unavailable, raising=False)
     monkeypatch.setattr("ktrex.tui._KEY_MOUSE", None)
 
     screen = FakeScreen(24, 80, keys=[27, 9, *[curses.KEY_DOWN] * 8, 10, ord("y")])

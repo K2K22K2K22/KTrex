@@ -283,7 +283,9 @@ def test_preview_refuses_a_real_directory(project):
     pv = read_preview(project)
 
     assert pv.lines == []
-    assert "regular file" in pv.error
+    # POSIX opens the directory and fstat shows the truth; Windows refuses
+    # the open up front with EACCES. Either way no content is ever shown.
+    assert "regular file" in pv.error or "Cannot read file" in pv.error
 
 
 def test_preview_rejects_identity_mismatch_in_fallback(project, monkeypatch, tmp_path):
@@ -324,19 +326,30 @@ def test_preview_descriptor_closed_on_all_paths(project, monkeypatch):
     path = project / "closed.txt"
     path.write_text("data")
     closed = []
+    opened = []
     real_close = os.close
+    real_open = os.open
 
     def spy_close(fd):
         closed.append(fd)
         return real_close(fd)
 
+    def spy_open(p, flags, *a):
+        fd = real_open(p, flags, *a)
+        opened.append(fd)
+        return fd
+
     monkeypatch.setattr("ktrex.preview.os.close", spy_close)
+    monkeypatch.setattr("ktrex.preview.os.open", spy_open)
 
     read_preview(path)  # success path
-    read_preview(project)  # directory path (not a regular file)
+    read_preview(project)  # directory path (refused or not a regular file)
     read_preview(project / "missing.txt")  # error path
 
-    assert len(closed) >= 2  # success and directory paths closed their fd
+    # Every descriptor the preview opened was closed again, whatever the
+    # platform refused up front.
+    assert opened
+    assert set(closed) >= set(opened)
 
 
 def test_preview_never_creates_history_or_writes(project):

@@ -43,14 +43,16 @@ def test_enter_with_empty_input_returns_empty_string(project):
     assert prompt(screen, "Name: ") == ""
 
 
-def test_unicode_input_and_deletion(project):
-    # 'é' arrives as the two UTF-8 bytes C3 A9.
+def test_unicode_input_and_deletion(project, monkeypatch):
+    # 'é' arrives as the two UTF-8 bytes C3 A9 on the ncurses path.
+    monkeypatch.setattr("ktrex.tui._PDCURSES", False)
     screen = FakeScreen(10, 40, keys=[0xC3, 0xA9, ord("x"), 127, 10])
 
     assert prompt(screen, "Name: ") == "é"
 
 
-def test_backspace_on_partial_utf8_sequence_drops_the_byte(project):
+def test_backspace_on_partial_utf8_sequence_drops_the_byte(project, monkeypatch):
+    monkeypatch.setattr("ktrex.tui._PDCURSES", False)
     screen = FakeScreen(10, 40, keys=[0xC3, 127, ord("a"), 10])
 
     assert prompt(screen, "Name: ") == "a"
@@ -170,20 +172,23 @@ def test_pdcurses_utf8_byte_pair_becomes_two_characters(project, monkeypatch):
     assert prompt(screen, "Name: ") == "Ã©"
 
 
-def test_stray_continuation_byte_does_not_swallow_next_input(project):
+def test_stray_continuation_byte_does_not_swallow_next_input(project, monkeypatch):
+    monkeypatch.setattr("ktrex.tui._PDCURSES", False)
     # A lone 0x80 can never start UTF-8: drop it alone, keep the 'a'.
     screen = FakeScreen(10, 40, keys=[0x80, ord("a"), 10])
 
     assert prompt(screen, "Name: ") == "a"
 
 
-def test_invalid_start_byte_does_not_swallow_next_input(project):
+def test_invalid_start_byte_does_not_swallow_next_input(project, monkeypatch):
+    monkeypatch.setattr("ktrex.tui._PDCURSES", False)
     screen = FakeScreen(10, 40, keys=[0xFF, ord("a"), 10])
 
     assert prompt(screen, "Name: ") == "a"
 
 
-def test_broken_sequence_tail_restarts_on_new_start_byte(project):
+def test_broken_sequence_tail_restarts_on_new_start_byte(project, monkeypatch):
+    monkeypatch.setattr("ktrex.tui._PDCURSES", False)
     # 日 = E6 97 A5: a stray E6 in the tail is dropped and the real
     # sequence that follows still decodes.
     screen = FakeScreen(10, 40, keys=[0xE6, 0x97, 0xE6, 0x97, 0xA5, 10])
@@ -191,7 +196,8 @@ def test_broken_sequence_tail_restarts_on_new_start_byte(project):
     assert prompt(screen, "Name: ") == "日"
 
 
-def test_backspace_inside_partial_three_byte_sequence(project):
+def test_backspace_inside_partial_three_byte_sequence(project, monkeypatch):
+    monkeypatch.setattr("ktrex.tui._PDCURSES", False)
     # Backspace pops one pending byte, then retyping completes the char.
     screen = FakeScreen(10, 40, keys=[0xE6, 0x97, 127, 0xE6, 0x97, 0xA5, 10])
 
