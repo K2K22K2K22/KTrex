@@ -1,7 +1,6 @@
-import os
 from pathlib import Path
 
-from .fs import InvalidName, create_dir, create_file, remove_created, validate_name
+from .fs import InvalidName, _is_windows, create_dir, create_file, remove_created, validate_name
 
 MAX_DEPTH = 64
 
@@ -78,7 +77,7 @@ def validate_tree(node, depth: int = 0) -> None:
     for child in children:
         validate_tree(child, depth + 1)
         # Windows filesystems fold case, so "A" and "a" collide there.
-        key = child["name"].casefold() if os.name == "nt" else child["name"]
+        key = child["name"].casefold() if _is_windows() else child["name"]
         if key in seen:
             raise InvalidTree(f"duplicate name '{child['name']}' in '{name}'")
         seen.add(key)

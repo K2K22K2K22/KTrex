@@ -1,5 +1,3 @@
-import os
-
 import pytest
 
 from ktrex import state
@@ -121,11 +119,11 @@ def test_windows_allows_everyday_names(name):
 
 def test_windows_rules_apply_only_on_windows(monkeypatch):
     # "con" is a perfectly legal directory name on Linux and stays that way.
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr("ktrex.fs._is_windows", lambda: False)
     assert validate_name("con") == "con"
     assert validate_name("a:b") == "a:b"
 
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr("ktrex.fs._is_windows", lambda: True)
     with pytest.raises(InvalidName):
         validate_name("con")
     with pytest.raises(InvalidName):
@@ -133,7 +131,7 @@ def test_windows_rules_apply_only_on_windows(monkeypatch):
 
 
 def test_windows_rejects_reserved_name_before_touching_disk(project, monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr("ktrex.fs._is_windows", lambda: True)
 
     with pytest.raises(InvalidName):
         create_dir(project, "con")
@@ -142,7 +140,7 @@ def test_windows_rejects_reserved_name_before_touching_disk(project, monkeypatch
 
 
 def test_windows_rejects_trailing_dot_before_touching_disk(project, monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr("ktrex.fs._is_windows", lambda: True)
 
     with pytest.raises(InvalidName):
         create_file(project, "oops.")

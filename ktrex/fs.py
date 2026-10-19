@@ -22,6 +22,12 @@ class InvalidName(ValueError):
     """Raised when an entry name is not a valid single path segment."""
 
 
+def _is_windows() -> bool:
+    # Tests monkeypatch this seam instead of os.name, which would make
+    # pathlib raise NotImplementedError on Python 3.10 and 3.11.
+    return os.name == "nt"
+
+
 _WIN_ILLEGAL = set('<>:"|?*')
 _WIN_RESERVED = (
     {"con", "prn", "aux", "nul"}
@@ -58,7 +64,7 @@ def validate_name(name: str) -> str:
         raise InvalidName("name cannot contain null bytes")
     if any(ord(c) < 32 or ord(c) == 127 for c in name):
         raise InvalidName("name cannot contain control characters")
-    if os.name == "nt":
+    if _is_windows():
         _validate_windows_name(name)
     return name
 

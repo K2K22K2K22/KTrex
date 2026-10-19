@@ -25,10 +25,11 @@ def test_preview_normal_utf8_file(project):
     assert pv.total_known is True
     assert pv.lines == ["héllo wörld", "日本語 line", "third"]
 
-    screen = FakeScreen(10, 60, keys=[27])
+    # Wide enough that even long CI tmp paths fit: the header clips to the
+    # terminal width, which the narrow-screen tests cover separately.
+    screen = FakeScreen(10, 120, keys=[27])
     preview_screen(screen, path)
     assert "héllo wörld" in frame_text(screen.frames[0])
-    # The header clips long paths instead of wrapping past the edge.
     assert str(path.parent) in frame_text(screen.frames[0])
 
 
@@ -70,7 +71,10 @@ def test_preview_missing_file(project):
     assert "Cannot read file" in pv.error
 
 
-@pytest.mark.skipif(getattr(os, "geteuid", lambda: -1)() == 0, reason="root ignores file permissions")
+@pytest.mark.skipif(
+    getattr(os, "geteuid", lambda: -1)() == 0, reason="root ignores file permissions"
+)
+@pytest.mark.skipif(os.name == "nt", reason="Windows chmod cannot make a file unreadable")
 def test_preview_unreadable_file(project):
     path = project / "secret.txt"
     path.write_text("hidden")

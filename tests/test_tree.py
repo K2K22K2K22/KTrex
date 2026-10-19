@@ -1,5 +1,4 @@
 import json
-import os
 
 import pytest
 
@@ -41,14 +40,14 @@ def test_rejects_duplicate_names():
 
 
 def test_duplicate_detection_is_case_insensitive_on_windows(monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr("ktrex.tree._is_windows", lambda: True)
 
     with pytest.raises(InvalidTree):
         validate_tree(dir_node("root", file_node("A"), file_node("a")))
 
 
 def test_duplicate_detection_stays_case_sensitive_on_posix(monkeypatch):
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr("ktrex.tree._is_windows", lambda: False)
 
     validate_tree(dir_node("root", file_node("A"), file_node("a")))
 
