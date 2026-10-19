@@ -18,6 +18,12 @@ def test_pypi_metadata_declares_py310_minimum(pyproject):
     assert 'requires-python = ">=3.10"' in pyproject
 
 
+def test_pyproject_version_matches_package_version(pyproject):
+    from ktrex import __version__
+
+    assert f'version = "{__version__}"' in pyproject
+
+
 def test_windows_curses_is_a_conditional_dependency(pyproject):
     assert 'windows-curses>=2.4.2; platform_system == "Windows"' in pyproject
 

@@ -6,7 +6,9 @@ undo mistakes, save the layout, and reuse it later as a preset on any new
 project.
 
 It runs as a curses TUI (tree on the left, actions on the right) and ships
-as a plain command line tool with no runtime dependencies.
+as a plain command line tool. On Linux and macOS it uses the curses module
+from the standard library; on Windows it installs the PDCurses-based
+`windows-curses` package automatically, so a normal pip install is enough.
 
 ## Features
 
@@ -24,12 +26,21 @@ as a plain command line tool with no runtime dependencies.
 ## Requirements
 
 - Python 3.10 or newer
-- A Unix-like terminal with `curses` (included in the standard library on Linux and macOS; Windows may need extra setup)
+- Windows 10/11 (PowerShell, Windows Terminal or the classic console),
+  Linux, or macOS
+- No manual terminal setup: the curses backend is installed automatically
+  on Windows, everything else uses the standard library
 
 ## Install
 
 ```bash
 pip install KTrex
+```
+
+On Windows use PowerShell, cmd, or Windows Terminal:
+
+```powershell
+py -m pip install KTrex
 ```
 
 ## Usage
@@ -40,6 +51,12 @@ Interactive session:
 ktrex                # prompts for a directory
 ktrex my-project     # create/open my-project
 ktrex .              # work inside the current directory
+```
+
+PowerShell works the same way:
+
+```powershell
+ktrex my-project
 ```
 
 Command line:
@@ -151,12 +168,36 @@ Preset name or path: /home/me/presets/rust_cli.json
   in sync; if a created directory gained content meanwhile, it is reported
   as a leftover instead of being deleted
 
+## Troubleshooting
+
+- `Error: KTrex needs the curses module` means this Python has no curses
+  backend. On Windows a normal install pulls in `windows-curses`
+  automatically; if you see this message, `pip install windows-curses`
+  fixes it
+- `Error: terminal initialization failed` means the terminal refused to
+  enter curses mode. Try a different terminal, on Windows preferably
+  Windows Terminal over the classic console
+- Ctrl+C exits with code 1 and restores the terminal, it never leaves a
+  broken console behind
+
+## Known limitations
+
+- Undo identity checks rely on device and inode numbers. On filesystems
+  that report no usable inode numbers the check falls back to file type,
+  size and mtime and is less strict
+- Windows filename rules (illegal characters, reserved device names such
+  as `CON` or `COM1`, trailing dot or space) are enforced on Windows only,
+  so a name like `con` stays legal on Linux
+- Duplicate names in presets and structures are compared case-insensitively
+  on Windows and case-sensitively on Linux and macOS, matching each
+  filesystem's behavior
+
 ## Development
 
 ```bash
 git clone git@github.com:K2K22K2K22/KTrex.git
 cd KTrex
-python -m pip install -e .
+python -m pip install -e ".[dev]"
 python -m pytest
 ```
 

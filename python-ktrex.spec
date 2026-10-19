@@ -1,5 +1,5 @@
 Name:           python-ktrex
-Version:        0.3.0
+Version:        0.4.0
 Release:        1%{?dist}
 Summary:        Interactive terminal-based directory structure builder
 
@@ -36,7 +36,7 @@ Summary:        %{summary}
 
 %install
 %pyproject_install
-# v0.3.0 tarball ships these files with an accidental exec bit
+# v0.3.0 tarball shipped these files with an accidental exec bit
 chmod 644 README.md %{buildroot}%{python3_sitelib}/ktrex/presets/ml_project.json
 %pyproject_save_files -l ktrex
 # shortcut: PyPI ships a duplicate capital-K entry point; Fedora requires lowercase names
@@ -50,5 +50,8 @@ rm %{buildroot}%{_bindir}/KTrex
 %{_bindir}/ktrex
 
 %changelog
+* Tue Oct 20 2026 AK <ak@fedoraproject.org> - 0.4.0-1
+- Update to 0.4.0 (Windows support and input fixes)
+
 * Sun Oct 18 2026 AK <ak@fedoraproject.org> - 0.3.0-1
 - Initial package
