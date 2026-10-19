@@ -70,7 +70,7 @@ def test_preview_missing_file(project):
     assert "Cannot read file" in pv.error
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
+@pytest.mark.skipif(getattr(os, "geteuid", lambda: -1)() == 0, reason="root ignores file permissions")
 def test_preview_unreadable_file(project):
     path = project / "secret.txt"
     path.write_text("hidden")

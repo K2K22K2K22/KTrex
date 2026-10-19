@@ -8,7 +8,9 @@ authors = [
     { name = "AK" }
 ]
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    'windows-curses>=2.4.2; platform_system == "Windows"',
+]
 keywords = ["directory", "structure", "scaffold", "tui", "curses", "cli"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -16,11 +18,13 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Build Tools",
     "Topic :: Utilities",
 ]

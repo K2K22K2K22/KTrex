@@ -60,7 +60,7 @@ def test_render_large_tree_smoke(project):
     assert len(lines) == 200
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+@pytest.mark.skipif(getattr(os, "geteuid", lambda: -1)() == 0, reason="root ignores directory permissions")
 def test_unreadable_directory_is_reported(project):
     secret = project / "secret"
     secret.mkdir()
