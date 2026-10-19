@@ -1,5 +1,6 @@
 import curses
 import json
+import sys
 from pathlib import Path
 
 from . import state
@@ -8,6 +9,12 @@ from .presets import load_preset
 from .preview import read_preview
 from .render import collect_rows, format_row
 from .tree import apply_tree, build_tree
+
+# PDCurses (windows-curses) returns Unicode code points from getch, while
+# ncurses returns the bytes of a UTF-8 sequence; prompts must feed both.
+_PDCURSES = sys.platform == "win32"
+_KEY_CODES = frozenset(getattr(curses, name) for name in dir(curses) if name.startswith("KEY_"))
+_KEY_MOUSE = getattr(curses, "KEY_MOUSE", None)
 
 MENU_ITEMS = [
     "Create Directory",
@@ -233,6 +240,17 @@ def preview_screen(stdscr, path: Path):
             top = max(0, total - visible)
 
 
+def _utf8_len(b0: int) -> int:
+    """Length of the UTF-8 sequence started by b0, 0 when it cannot start one."""
+    if 0xC2 <= b0 <= 0xDF:
+        return 2
+    if 0xE0 <= b0 <= 0xEF:
+        return 3
+    if 0xF0 <= b0 <= 0xF4:
+        return 4
+    return 0
+
+
 def prompt(stdscr, message: str) -> str | None:
     """Single line input.
 
@@ -248,12 +266,21 @@ def prompt(stdscr, message: str) -> str | None:
     pending = bytearray()  # bytes of a not yet complete UTF-8 sequence
 
     def feed(byte: int) -> str:
+        if _utf8_len(byte):
+            # A start byte supersedes any stale remainder: bytes arrive in
+            # order, so an interrupted sequence can never complete anymore.
+            pending.clear()
+            pending.append(byte)
+            return ""
+        if not pending:
+            return ""  # stray continuation byte
         pending.append(byte)
+        expected = _utf8_len(pending[0])
         try:
             ch = pending.decode("utf-8")
         except UnicodeDecodeError:
-            if len(pending) > 4:  # not a valid sequence start, drop it
-                pending.clear()
+            if len(pending) == expected:
+                pending.clear()  # complete but invalid: never eat the next key
             return ""
         pending.clear()
         return ch
@@ -287,9 +314,15 @@ def prompt(stdscr, message: str) -> str | None:
         elif 32 <= key < 127 and len(buf) < max_len():
             buf.append(chr(key))
         elif 128 <= key <= 255:
-            ch = feed(key)
-            if ch and len(buf) < max_len():
-                buf.append(ch)
+            if _PDCURSES:
+                if len(buf) < max_len():
+                    buf.append(chr(key))
+            else:
+                ch = feed(key)
+                if ch and len(buf) < max_len():
+                    buf.append(ch)
+        elif key > 255 and key not in _KEY_CODES and len(buf) < max_len():
+            buf.append(chr(key))
 
 
 def location_label(root: Path, current: Path) -> str:
@@ -320,9 +353,13 @@ def handle_mouse(stdscr, top: int) -> int:
     except curses.error:
         return top
 
-    if mouse_state & (curses.BUTTON4_PRESSED | curses.BUTTON4_RELEASED):
+    # Wheel constants are optional in some curses builds: without them the
+    # wheel is simply inert and the keyboard keeps working.
+    wheel_up = getattr(curses, "BUTTON4_PRESSED", 0) | getattr(curses, "BUTTON4_RELEASED", 0)
+    wheel_down = getattr(curses, "BUTTON5_PRESSED", 0) | getattr(curses, "BUTTON5_RELEASED", 0)
+    if mouse_state & wheel_up:
         return max(0, top - 3)
-    if mouse_state & (curses.BUTTON5_PRESSED | curses.BUTTON5_RELEASED):
+    if mouse_state & wheel_down:
         return top + 3
     return top
 
@@ -339,11 +376,16 @@ def clamp_viewport(cursor: int, top: int, count: int, visible: int) -> int:
 
 
 def tui_main(stdscr):
-    curses.curs_set(0)
     try:
-        curses.mousemask(curses.ALL_MOUSE_EVENTS)
+        curses.curs_set(0)
     except curses.error:
         pass
+    mouse_mask = getattr(curses, "ALL_MOUSE_EVENTS", 0)
+    if mouse_mask:
+        try:
+            curses.mousemask(mouse_mask)
+        except curses.error:
+            pass
     try:
         # Short ESC delay: bare ESC answers fast, arrow keys still assemble.
         curses.set_escdelay(25)
@@ -407,7 +449,7 @@ def tui_main(stdscr):
             if key == 9:  # Tab switches focus
                 focus = "menu" if focus == "tree" else "tree"
 
-            elif key == curses.KEY_MOUSE:
+            elif _KEY_MOUSE is not None and key == _KEY_MOUSE:
                 top = handle_mouse(stdscr, top)
 
             elif key == 27:  # bare ESC on the main screen never quits

@@ -134,3 +134,65 @@ def test_prompt_ignores_arrow_and_function_keys(project):
 
     assert prompt(screen, "Name: ") == "a"
     assert screen.keys == []
+
+
+def test_pdcurses_latin1_code_point_is_a_character(project, monkeypatch):
+    # windows-curses returns the Unicode code point: 0xE9 is é, not a UTF-8
+    # byte that would wait forever for a continuation.
+    monkeypatch.setattr("ktrex.tui._PDCURSES", True)
+
+    screen = FakeScreen(10, 40, keys=[0xE9, ord("x"), 10])
+
+    assert prompt(screen, "Name: ") == "éx"
+
+
+def test_pdcurses_code_point_outside_latin1_is_a_character(project, monkeypatch):
+    monkeypatch.setattr("ktrex.tui._PDCURSES", True)
+
+    screen = FakeScreen(10, 40, keys=[0x65E5, 10])
+
+    assert prompt(screen, "Name: ") == "日"
+
+
+def test_wide_code_point_is_a_character_on_the_ncurses_path(project):
+    # Wide code points above 255 arrive whole on either implementation.
+    screen = FakeScreen(10, 40, keys=[0x65E5, ord("!"), 10])
+
+    assert prompt(screen, "Name: ") == "日!"
+
+
+def test_pdcurses_utf8_byte_pair_becomes_two_characters(project, monkeypatch):
+    # What ncurses would decode as one é are two code points for PDCurses.
+    monkeypatch.setattr("ktrex.tui._PDCURSES", True)
+
+    screen = FakeScreen(10, 40, keys=[0xC3, 0xA9, 10])
+
+    assert prompt(screen, "Name: ") == "Ã©"
+
+
+def test_stray_continuation_byte_does_not_swallow_next_input(project):
+    # A lone 0x80 can never start UTF-8: drop it alone, keep the 'a'.
+    screen = FakeScreen(10, 40, keys=[0x80, ord("a"), 10])
+
+    assert prompt(screen, "Name: ") == "a"
+
+
+def test_invalid_start_byte_does_not_swallow_next_input(project):
+    screen = FakeScreen(10, 40, keys=[0xFF, ord("a"), 10])
+
+    assert prompt(screen, "Name: ") == "a"
+
+
+def test_broken_sequence_tail_restarts_on_new_start_byte(project):
+    # 日 = E6 97 A5: a stray E6 in the tail is dropped and the real
+    # sequence that follows still decodes.
+    screen = FakeScreen(10, 40, keys=[0xE6, 0x97, 0xE6, 0x97, 0xA5, 10])
+
+    assert prompt(screen, "Name: ") == "日"
+
+
+def test_backspace_inside_partial_three_byte_sequence(project):
+    # Backspace pops one pending byte, then retyping completes the char.
+    screen = FakeScreen(10, 40, keys=[0xE6, 0x97, 127, 0xE6, 0x97, 0xA5, 10])
+
+    assert prompt(screen, "Name: ") == "日"

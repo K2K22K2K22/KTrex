@@ -78,3 +78,42 @@ def test_prepare_root_creates_nested_path(tmp_path):
     root = prepare_root(str(tmp_path / "a" / "b"))
 
     assert root.is_dir()
+
+
+def test_keyboard_interrupt_during_directory_prompt_exits_cleanly(monkeypatch):
+    def interrupted(*a):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", interrupted)
+
+    assert main([]) == 1
+
+
+def test_keyboard_interrupt_during_tui_exits_cleanly(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    import ktrex.main as main_mod
+
+    def interrupted(func):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(main_mod.curses, "wrapper", interrupted)
+
+    assert main(["."]) == 1
+
+
+def test_terminal_init_failure_reports_a_clean_error(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    import ktrex.main as main_mod
+
+    def broken(func):
+        raise main_mod.curses.error("init failed")
+
+    monkeypatch.setattr(main_mod.curses, "wrapper", broken)
+
+    code = main(["."])
+
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "Error" in out
+    assert "terminal" in out
+    assert "Traceback" not in out

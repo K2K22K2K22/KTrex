@@ -75,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as e:
         print(f"Error: {e}")
         return 1
+    except KeyboardInterrupt:
+        return 1
 
     if args.apply:
         try:
@@ -89,7 +91,15 @@ def main(argv: list[str] | None = None) -> int:
 
     from ktrex.tui import tui_main
 
-    curses.wrapper(tui_main)
+    # curses.wrapper restores the terminal even when tui_main fails or the
+    # user aborts, so both leave a clean console behind.
+    try:
+        curses.wrapper(tui_main)
+    except KeyboardInterrupt:
+        return 1
+    except curses.error as e:
+        print(f"Error: terminal initialization failed: {e}")
+        return 1
     return 0
 
 

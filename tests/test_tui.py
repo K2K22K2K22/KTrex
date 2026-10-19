@@ -417,3 +417,55 @@ def test_menu_page_keys_move_selection(project, monkeypatch):
 
     assert screen.keys == []
     assert any("Quit KTrex? [y/N]" in frame_text(f) for f in screen.frames)
+
+
+# --- Windows compatibility ----------------------------------------------------
+
+from ktrex.tui import handle_mouse, tui_main
+
+
+def test_handle_mouse_scrolls_with_the_wheel(project, monkeypatch):
+    monkeypatch.setattr(
+        curses, "getmouse", lambda: (0, 0, 0, 0, curses.BUTTON4_PRESSED)
+    )
+    assert handle_mouse(None, 7) == 4
+
+    monkeypatch.setattr(
+        curses, "getmouse", lambda: (0, 0, 0, 0, curses.BUTTON5_PRESSED)
+    )
+    assert handle_mouse(None, 7) == 10
+
+
+def test_handle_mouse_survives_missing_wheel_constants(project, monkeypatch):
+    for name in ("BUTTON4_PRESSED", "BUTTON4_RELEASED", "BUTTON5_PRESSED", "BUTTON5_RELEASED"):
+        monkeypatch.delattr(curses, name, raising=False)
+    monkeypatch.setattr(curses, "getmouse", lambda: (0, 0, 0, 0, 0x80000))
+
+    # The wheel is gone, but the viewport must not crash or jump.
+    assert handle_mouse(None, 7) == 7
+
+
+def test_handle_mouse_ignores_getmouse_failure(project, monkeypatch):
+    def boom():
+        raise curses.error("no mouse")
+
+    monkeypatch.setattr(curses, "getmouse", boom)
+
+    assert handle_mouse(None, 3) == 3
+
+
+def test_tui_runs_when_optional_terminal_features_are_unavailable(project, monkeypatch):
+    (project / "f.txt").write_text("x")
+
+    def unavailable(*a):
+        raise curses.error("unsupported")
+
+    monkeypatch.setattr(curses, "curs_set", unavailable)
+    monkeypatch.setattr(curses, "mousemask", unavailable)
+    monkeypatch.setattr(curses, "set_escdelay", unavailable)
+    monkeypatch.setattr("ktrex.tui._KEY_MOUSE", None)
+
+    screen = FakeScreen(24, 80, keys=[27, 9, *[curses.KEY_DOWN] * 8, 10, ord("y")])
+    tui_main(screen)
+
+    assert screen.keys == []
