@@ -22,6 +22,29 @@ class InvalidName(ValueError):
     """Raised when an entry name is not a valid single path segment."""
 
 
+_WIN_ILLEGAL = set('<>:"|?*')
+_WIN_RESERVED = (
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)}
+    | {f"lpt{i}" for i in range(1, 10)}
+)
+
+
+def _validate_windows_name(name: str) -> None:
+    """Reject names the Win32 namespace cannot store.
+
+    Checked only when running on Windows: names legal on Linux, such as
+    "con" or "a:b", stay legal there.
+    """
+    for c in name:
+        if c in _WIN_ILLEGAL:
+            raise InvalidName(f"name cannot contain {c!r} on Windows")
+    if name.endswith((" ", ".")):
+        raise InvalidName("name cannot end with a space or period on Windows")
+    if name.split(".")[0].lower() in _WIN_RESERVED:
+        raise InvalidName(f"name is a reserved Windows device name: {name}")
+
+
 def validate_name(name: str) -> str:
     if not name or not name.strip():
         raise InvalidName("name cannot be empty")
@@ -35,6 +58,8 @@ def validate_name(name: str) -> str:
         raise InvalidName("name cannot contain null bytes")
     if any(ord(c) < 32 or ord(c) == 127 for c in name):
         raise InvalidName("name cannot contain control characters")
+    if os.name == "nt":
+        _validate_windows_name(name)
     return name
 
 

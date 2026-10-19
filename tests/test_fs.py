@@ -1,7 +1,16 @@
+import os
+
 import pytest
 
 from ktrex import state
-from ktrex.fs import InvalidName, create_dir, create_file, undo_last
+from ktrex.fs import (
+    InvalidName,
+    _validate_windows_name,
+    create_dir,
+    create_file,
+    undo_last,
+    validate_name,
+)
 
 
 @pytest.mark.parametrize("bad", ["", "   "])
@@ -86,3 +95,56 @@ def test_undo_keeps_non_empty_dir(project):
     assert d.exists()
     assert len(state.history) == 1
     assert state.history[0].get("path") == d
+
+
+# --- Windows name rules -------------------------------------------------------
+
+@pytest.mark.parametrize("name", ["a<b", "a>b", "a:b", 'a"b', "a|b", "a?b", "a*b", "C:x"])
+def test_windows_rejects_illegal_characters(name):
+    with pytest.raises(InvalidName):
+        _validate_windows_name(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["trailing ", "trailing.", "con", "CON", "NUL", "nul.txt", "aux.log", "COM1", "Lpt9.bak"],
+)
+def test_windows_rejects_unstorable_names(name):
+    with pytest.raises(InvalidName):
+        _validate_windows_name(name)
+
+
+@pytest.mark.parametrize("name", ["com10", "console", "contact.txt", "a", "v1.2", "nuls.txt", "sp ace"])
+def test_windows_allows_everyday_names(name):
+    assert _validate_windows_name(name) is None
+
+
+def test_windows_rules_apply_only_on_windows(monkeypatch):
+    # "con" is a perfectly legal directory name on Linux and stays that way.
+    monkeypatch.setattr(os, "name", "posix")
+    assert validate_name("con") == "con"
+    assert validate_name("a:b") == "a:b"
+
+    monkeypatch.setattr(os, "name", "nt")
+    with pytest.raises(InvalidName):
+        validate_name("con")
+    with pytest.raises(InvalidName):
+        validate_name("a:b")
+
+
+def test_windows_rejects_reserved_name_before_touching_disk(project, monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+
+    with pytest.raises(InvalidName):
+        create_dir(project, "con")
+
+    assert list(project.iterdir()) == []
+
+
+def test_windows_rejects_trailing_dot_before_touching_disk(project, monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+
+    with pytest.raises(InvalidName):
+        create_file(project, "oops.")
+
+    assert list(project.iterdir()) == []

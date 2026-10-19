@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 
@@ -37,6 +38,19 @@ def test_rejects_children_on_file():
 def test_rejects_duplicate_names():
     with pytest.raises(InvalidTree):
         validate_tree(dir_node("root", file_node("a"), file_node("a")))
+
+
+def test_duplicate_detection_is_case_insensitive_on_windows(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+
+    with pytest.raises(InvalidTree):
+        validate_tree(dir_node("root", file_node("A"), file_node("a")))
+
+
+def test_duplicate_detection_stays_case_sensitive_on_posix(monkeypatch):
+    monkeypatch.setattr(os, "name", "posix")
+
+    validate_tree(dir_node("root", file_node("A"), file_node("a")))
 
 
 def test_rejects_non_list_children():

@@ -6,10 +6,11 @@ never mutates the filesystem.
 Symlink policy: preview never follows a symbolic link. Where the platform
 supports O_NOFOLLOW the file is opened with it, so the check and the open
 are one atomic step. Where it does not, preview lstats the path and compares
-the identity of the opened descriptor, refusing on any mismatch. Race-free
-resolution of symlinked *parent* directories is out of scope; opening a path
-inside a swapped directory can still reach a different file, and identity
-checks catch it.
+the identity of the opened descriptor, refusing on any mismatch. On
+filesystems that report st_ino == 0 identity cannot be proven and the lstat
+symlink inspection is the only guard. Race-free resolution of symlinked
+*parent* directories is out of scope; opening a path inside a swapped
+directory can still reach a different file, and identity checks catch it.
 
 Truncation policy: at most PREVIEW_MAX_BYTES are read and at most
 PREVIEW_MAX_LINES are kept. When a limit is hit the result is marked

@@ -117,3 +117,42 @@ def test_terminal_init_failure_reports_a_clean_error(monkeypatch, tmp_path, caps
     assert "Error" in out
     assert "terminal" in out
     assert "Traceback" not in out
+
+
+def test_destination_inside_a_file_reports_a_clean_error(tmp_path, capsys):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory")
+
+    code = main(["--apply", "ml_project", str(blocker / "sub")])
+
+    assert code == 1
+    assert "Error" in capsys.readouterr().out
+
+
+def test_apply_malformed_preset_json_reports_a_clean_error(tmp_path, capsys):
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+
+    code = main(["--apply", str(bad), str(tmp_path / "p")])
+
+    assert code == 1
+    assert "Error" in capsys.readouterr().out
+
+
+def test_keyboard_interrupt_during_apply_exits_cleanly(monkeypatch, tmp_path):
+    def interrupted(preset, base):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("ktrex.main.load_preset", interrupted)
+
+    assert main(["--apply", "ml_project", str(tmp_path / "p")]) == 1
+
+
+def test_programming_error_during_apply_is_not_masked(monkeypatch, tmp_path):
+    def bug(preset, base):
+        raise TypeError("bug")
+
+    monkeypatch.setattr("ktrex.main.load_preset", bug)
+
+    with pytest.raises(TypeError):
+        main(["--apply", "ml_project", str(tmp_path / "p")])

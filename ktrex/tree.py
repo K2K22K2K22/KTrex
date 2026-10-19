@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from .fs import InvalidName, create_dir, create_file, remove_created, validate_name
@@ -73,12 +74,14 @@ def validate_tree(node, depth: int = 0) -> None:
     if not isinstance(children, list):
         raise InvalidTree(f"directory '{name}' needs a list of children")
 
-    seen = set()
+    seen: set[str] = set()
     for child in children:
         validate_tree(child, depth + 1)
-        if child["name"] in seen:
+        # Windows filesystems fold case, so "A" and "a" collide there.
+        key = child["name"].casefold() if os.name == "nt" else child["name"]
+        if key in seen:
             raise InvalidTree(f"duplicate name '{child['name']}' in '{name}'")
-        seen.add(child["name"])
+        seen.add(key)
 
 
 def _rollback(created: list[Path]) -> list[Path]:

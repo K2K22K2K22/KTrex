@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ktrex import __version__, state
 from ktrex.presets import builtin_presets, load_preset
+from ktrex.tree import RollbackError
 
 try:
     import curses
@@ -75,14 +76,19 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as e:
         print(f"Error: {e}")
         return 1
+    except OSError as e:
+        print(f"Error: cannot create project directory: {e}")
+        return 1
     except KeyboardInterrupt:
         return 1
 
     if args.apply:
         try:
             load_preset(args.apply, root)
-        except Exception as e:
+        except (ValueError, OSError, RollbackError) as e:
             print(f"Error: {e}")
+            return 1
+        except KeyboardInterrupt:
             return 1
         print(f"Applied preset '{args.apply}' to {root}")
         return 0
