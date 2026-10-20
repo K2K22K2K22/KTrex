@@ -111,24 +111,6 @@ Menu and prompts (right pane and bottom line):
 Quit from the menu (it asks for confirmation; ESC or anything except `y`
 cancels it).
 
-## File preview
-
-Press `v` on a file to read it without leaving KTrex or opening an editor:
-
-- Header shows the filename and full path, clipped to the terminal width
-- Footer shows `lines A-B/N` for a complete read, or `lines A-B/N+ (byte limit)`
-  or `(line limit)` when truncated; the partial count is never shown as the total
-- Empty files show a friendly note; binary files (containing NUL bytes) show a
-  message instead of garbage; unreadable or missing files show the error
-- Symlinked files are not previewed, matching the tree's symlink policy; the
-  open itself refuses to follow a final symlink, and a file swapped between
-  validation and reading is refused by an identity check
-- Reading is bounded: at most 256 KiB and 2000 lines are held in memory, so a
-  huge file previews instantly and scrolling never rescans the disk
-- Preview is strictly read-only; it never touches the file or the undo history
-- The preview redraws from the current terminal size, so resizing mid-preview
-  is safe
-
 ## Presets
 
 A preset describes a starting tree. KTrex ships twelve:
