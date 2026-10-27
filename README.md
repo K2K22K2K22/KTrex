@@ -86,6 +86,7 @@ Tree view (left pane):
 | v | Preview the selected file |
 | PageUp / PageDown | Move one page |
 | Home / End | Jump to the top or bottom |
+| Ctrl + / Ctrl - | Zoom the tree pane in or out |
 | Mouse wheel | Scroll the tree |
 
 Preview screen:

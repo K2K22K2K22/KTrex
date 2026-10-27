@@ -39,6 +39,7 @@ HELP_TEXT = [
     "  v            Preview the selected file",
     "  PageUp / PageDown  Move a page",
     "  Home / End   Jump to top or bottom",
+    "  Ctrl + / -   Zoom the tree pane in or out",
     "",
     "Preview:",
     "  Up / Down / PageUp / PageDown / Home / End  Scroll",
@@ -75,6 +76,13 @@ HELP_TEXT = [
 MENU_WIDTH = 24
 MIN_HEIGHT = 6
 MIN_WIDTH = 28
+ZOOM_STEP = 6
+ZOOM_MIN = -2
+ZOOM_MAX = 3
+# Ctrl+= / Ctrl+plus arrives as 0x1D and Ctrl+minus as 0x1F on common
+# terminals (the & 0x1F ctrl mapping); xterm-style CSI-u encodings are not.
+KEY_ZOOM_IN = 0x1D
+KEY_ZOOM_OUT = 0x1F
 
 
 def sanitize(text: str) -> str:
@@ -96,8 +104,16 @@ def put(stdscr, y: int, x: int, text: str, attr: int = 0, width: int | None = No
         pass
 
 
-def menu_geometry(h: int, w: int) -> tuple[int, int]:
-    width = min(MENU_WIDTH, max(10, w // 3))
+def menu_geometry(h: int, w: int, zoom: int = 0) -> tuple[int, int]:
+    """Split the screen for the given zoom level.
+
+    Zooming in widens the tree pane by shrinking the menu, zooming out
+    does the reverse. The menu never drops below 10 columns and the tree
+    keeps at least 14, so every level stays readable and put() clips the
+    rest safely.
+    """
+    width = min(MENU_WIDTH, max(10, w // 3)) - zoom * ZOOM_STEP
+    width = max(10, min(width, max(10, w - 14)))
     return max(0, w - width), width
 
 
@@ -454,6 +470,7 @@ def tui_main(stdscr):
     top = 0
     menu_top = 0
     focus = "tree"
+    zoom = 0
     expanded: set[Path] = set()
     message = ""
     desired: Path | None = None
@@ -484,7 +501,7 @@ def tui_main(stdscr):
             visible = h - 2
             top = clamp_viewport(cursor, top, len(rows), visible)
 
-            menu_x, menu_width = menu_geometry(h, w)
+            menu_x, menu_width = menu_geometry(h, w, zoom)
             tree_width = max(1, menu_x - 1)
             end = min(top + visible, len(rows))
             scroll_info = f"[{top + 1}-{end}/{len(rows)}]" if len(rows) > visible else ""
@@ -501,6 +518,20 @@ def tui_main(stdscr):
 
             if key == 9:  # Tab switches focus
                 focus = "menu" if focus == "tree" else "tree"
+
+            elif key == KEY_ZOOM_IN:
+                if zoom < ZOOM_MAX:
+                    zoom += 1
+                    message = f"Tree zoomed in (level {zoom})"
+                else:
+                    message = "Tree zoom already at maximum"
+
+            elif key == KEY_ZOOM_OUT:
+                if zoom > ZOOM_MIN:
+                    zoom -= 1
+                    message = f"Tree zoomed out (level {zoom})"
+                else:
+                    message = "Tree zoom already at minimum"
 
             elif _KEY_MOUSE is not None and key == _KEY_MOUSE:
                 top = handle_mouse(stdscr, top)

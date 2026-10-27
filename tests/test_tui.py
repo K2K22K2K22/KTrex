@@ -112,6 +112,25 @@ def test_menu_geometry(project, w, expected_x, expected_width):
     assert (x, width) == (expected_x, expected_width)
 
 
+@pytest.mark.parametrize(
+    "w,zoom,expected",
+    [
+        (80, 0, (56, 24)),
+        (80, 1, (62, 18)),
+        (80, 2, (68, 12)),
+        (80, 3, (70, 10)),
+        (80, 4, (70, 10)),
+        (80, -1, (50, 30)),
+        (80, -2, (44, 36)),
+        (80, -3, (38, 42)),  # geometry itself has no zoom floor
+        (20, 3, (10, 10)),
+        (28, -2, (14, 14)),
+    ],
+)
+def test_menu_geometry_zoom_levels(project, w, zoom, expected):
+    assert menu_geometry(24, w, zoom) == expected
+
+
 def test_too_small():
     assert too_small(5, 80) is True
     assert too_small(24, 27) is True
@@ -540,6 +559,90 @@ def test_menu_load_preset_cancel_picker_creates_nothing(project, monkeypatch):
     assert screen.keys == []
     assert list(project.iterdir()) == []
     assert any("Cancelled" in frame_text(f) for f in screen.frames)
+
+
+# --- tree zoom ----------------------------------------------------------------
+
+def actions_column(frame) -> int:
+    return [x for _, x, text, _ in frame if text == "Actions"][0]
+
+
+def test_ctrl_zoom_widens_and_narrows_the_tree(project, monkeypatch):
+    (project / "src").mkdir()
+    escdelay = []
+    screen = FakeScreen(
+        24, 80, keys=[0x1D, 0x1D, 0x1F, 27, 9, *[curses.KEY_DOWN] * 8, 10, ord("y")]
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    assert actions_column(screen.frames[0]) == 56  # default split
+    assert actions_column(screen.frames[1]) == 62  # zoomed in once
+    assert actions_column(screen.frames[2]) == 68  # zoomed in again
+    assert actions_column(screen.frames[3]) == 62  # zoomed out once
+
+
+def test_zoom_keeps_cursor_selection_stable(project, monkeypatch):
+    (project / "src").mkdir()
+    escdelay = []
+    screen = FakeScreen(
+        24,
+        80,
+        keys=[curses.KEY_DOWN, 0x1D, 27, 9, *[curses.KEY_DOWN] * 8, 10, ord("y")],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    # The cursor stays on src (the only row, y=1) across the zoom change.
+    assert reverse_rows(screen.frames[1]) == [1]
+    assert reverse_rows(screen.frames[2]) == [1]
+
+
+def test_zoom_reports_the_limits(project, monkeypatch):
+    (project / "src").mkdir()
+    escdelay = []
+    screen = FakeScreen(
+        24,
+        80,
+        keys=[
+            *[0x1D] * 4,  # slam into the ceiling
+            *[0x1F] * 6,  # then through the floor
+            27,
+            9,
+            *[curses.KEY_DOWN] * 8,
+            10,
+            ord("y"),
+        ],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    texts = "\n".join(frame_text(f) for f in screen.frames)
+    assert "Tree zoomed in (level 3)" in texts
+    assert "Tree zoom already at maximum" in texts
+    assert "Tree zoomed out (level -2)" in texts
+    assert "Tree zoom already at minimum" in texts
+    assert actions_column(screen.frames[4]) == 70  # ceiling: menu at 10
+    assert actions_column(screen.frames[9]) == 44  # floor: menu at 36
+
+
+def test_zoom_clips_tree_rows_to_the_widened_pane(project, monkeypatch):
+    (project / ("l" * 120)).mkdir()
+    escdelay = []
+    screen = FakeScreen(24, 80, keys=[0x1D, 27, 9, *[curses.KEY_DOWN] * 8, 10, ord("y")])
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    zoomed = screen.frames[1]
+    # Every write stays inside the terminal and the tree never bleeds into
+    # the menu column.
+    assert all(0 <= x < 80 for _, x, _, _ in zoomed)
+    tree_writes = [t for y, x, t, _ in zoomed if x == 0 and y >= 1]
+    assert tree_writes and all(len(t) <= 61 for t in tree_writes)  # menu_x - 1
 
 
 def test_handle_mouse_scrolls_with_the_wheel(project, monkeypatch):
