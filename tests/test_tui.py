@@ -423,7 +423,123 @@ def test_menu_page_keys_move_selection(project, monkeypatch):
 
 # --- Windows compatibility ----------------------------------------------------
 
-from ktrex.tui import handle_mouse, tui_main
+from ktrex.tui import handle_mouse, preset_picker, tui_main
+
+
+def test_preset_picker_lists_builtins_and_selects_one(project):
+    screen = FakeScreen(24, 80, keys=[curses.KEY_DOWN, 10])
+
+    value = preset_picker(screen)
+
+    assert value == "django_project"  # second entry in sorted order
+    frame = frame_text(screen.frames[0])
+    assert "Load Preset" in frame
+    assert "cli_tool" in frame
+
+
+def test_preset_picker_esc_cancels(project):
+    screen = FakeScreen(24, 80, keys=[27])
+
+    assert preset_picker(screen) is None
+
+
+def test_preset_picker_q_cancels(project):
+    screen = FakeScreen(24, 80, keys=[ord("q")])
+
+    assert preset_picker(screen) is None
+
+
+def test_preset_picker_home_and_end_jump(project):
+    screen = FakeScreen(24, 80, keys=[curses.KEY_END, curses.KEY_HOME, 10])
+
+    assert preset_picker(screen) == "cli_tool"
+
+
+def test_preset_picker_page_keys_clamp(project):
+    # 21 visible slots hold all 13 entries: both page keys land on the ends.
+    screen = FakeScreen(24, 80, keys=[curses.KEY_NPAGE, curses.KEY_PPAGE, 10])
+
+    assert preset_picker(screen) == "cli_tool"
+
+
+def test_preset_picker_keeps_highlight_visible_when_pressed_down(project):
+    # 10 rows -> 7 visible slots for 13 entries: walk to the last entry.
+    screen = FakeScreen(10, 60, keys=[*[curses.KEY_DOWN] * 12, 27])
+
+    assert preset_picker(screen) is None
+    last = screen.frames[-1]  # frame drawn after the final down key
+    assert any(text == "Type a name or path..." and attr == curses.A_REVERSE
+               for _, _, text, attr in last)
+
+
+def test_preset_picker_custom_entry_opens_the_prompt(project):
+    screen = FakeScreen(24, 80, keys=[curses.KEY_END, 10, ord("m"), ord("y"), 10])
+
+    assert preset_picker(screen) == "my"
+
+
+def test_preset_picker_custom_entry_esc_still_cancels(project):
+    screen = FakeScreen(24, 80, keys=[curses.KEY_END, 10, 27])
+
+    assert preset_picker(screen) is None
+
+
+def test_preset_picker_on_tiny_terminal_esc_still_cancels(project):
+    screen = FakeScreen(5, 20, keys=[27])
+
+    assert preset_picker(screen) is None
+
+
+def test_preset_picker_ignores_function_keys(project):
+    screen = FakeScreen(24, 80, keys=[curses.KEY_F1, 10])
+
+    assert preset_picker(screen) == "cli_tool"
+
+
+def test_menu_load_preset_applies_the_picked_preset(project, monkeypatch):
+    escdelay = []
+    screen = FakeScreen(
+        24,
+        80,
+        keys=[
+            9,                      # focus menu
+            *[curses.KEY_DOWN] * 3,  # Load Preset (index 3)
+            10,                     # open the picker
+            10,                     # accept cli_tool
+            *[curses.KEY_DOWN] * 5,  # walk to Quit (index 8)
+            10,
+            ord("y"),
+        ],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    assert (project / "src" / "cli" / "__init__.py").is_file()
+    assert any("Preset applied: cli_tool" in frame_text(f) for f in screen.frames)
+
+
+def test_menu_load_preset_cancel_picker_creates_nothing(project, monkeypatch):
+    escdelay = []
+    screen = FakeScreen(
+        24,
+        80,
+        keys=[
+            9,
+            *[curses.KEY_DOWN] * 3,
+            10,
+            27,                     # cancel the picker
+            *[curses.KEY_DOWN] * 5,
+            10,
+            ord("y"),
+        ],
+    )
+
+    run_tui(monkeypatch, screen, escdelay)
+
+    assert screen.keys == []
+    assert list(project.iterdir()) == []
+    assert any("Cancelled" in frame_text(f) for f in screen.frames)
 
 
 def test_handle_mouse_scrolls_with_the_wheel(project, monkeypatch):

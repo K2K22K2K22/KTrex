@@ -127,9 +127,9 @@ Use one from the command line:
 ktrex --apply fastapi_project my-api
 ```
 
-or from the TUI: choose `Load Preset` and type a preset name. To use your own
-preset, save it anywhere as a JSON file and enter its path in the same
-prompt:
+or from the TUI: choose `Load Preset` and pick one from the list with the
+arrow keys. The last list entry, `Type a name or path...`, opens a prompt
+instead, so a custom preset file still works:
 
 ```text
 Preset name or path: /home/me/presets/rust_cli.json

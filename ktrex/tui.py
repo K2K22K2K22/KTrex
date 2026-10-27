@@ -5,7 +5,7 @@ from pathlib import Path
 
 from . import state
 from .fs import InvalidName, create_dir, create_file, undo_last
-from .presets import load_preset
+from .presets import builtin_presets, load_preset
 from .preview import read_preview
 from .render import collect_rows, format_row
 from .tree import apply_tree, build_tree
@@ -55,7 +55,7 @@ HELP_TEXT = [
     "  Create Directory  - Create and enter a new folder",
     "  Create File       - Create a file in current directory",
     "  Undo              - Revert last create action (safe)",
-    "  Load Preset       - Apply a preset by name or file path",
+    "  Load Preset       - Pick a bundled preset, or type a custom path",
     "  Save Structure    - Save project structure to JSON",
     "  Load Structure    - Load structure from JSON",
     "  Go Back           - Move to parent directory",
@@ -325,6 +325,59 @@ def prompt(stdscr, message: str) -> str | None:
             buf.append(chr(key))
 
 
+PRESET_PICKER_CUSTOM = "Type a name or path..."
+
+
+def preset_picker(stdscr) -> str | None:
+    """Modal picker over the bundled presets.
+
+    Enter returns the highlighted preset name, ESC or q cancels with
+    None. The last entry falls back to the classic prompt so a custom
+    preset file or path stays reachable.
+    """
+    entries = builtin_presets() + [PRESET_PICKER_CUSTOM]
+    selected = 0
+    top = 0
+
+    while True:
+        h, w = stdscr.getmaxyx()
+        if too_small(h, w):
+            draw_too_small(stdscr)
+            if stdscr.getch() in (ord("q"), 27):
+                return None
+            continue
+
+        stdscr.clear()
+        put(stdscr, 0, 0, "Load Preset", curses.A_BOLD, width=w - 1)
+        visible = max(1, h - 3)
+        top = clamp_viewport(selected, top, len(entries), visible)
+        for i, name in enumerate(entries[top:top + visible]):
+            attr = curses.A_REVERSE if top + i == selected else curses.A_NORMAL
+            put(stdscr, 1 + i, 2, name, attr, width=w - 4)
+        put(stdscr, h - 1, 0, "Enter: select  ESC: cancel", curses.A_DIM, width=w - 1)
+        stdscr.refresh()
+
+        key = stdscr.getch()
+        if key in (27, ord("q")):
+            return None
+        if key == curses.KEY_UP:
+            selected = max(0, selected - 1)
+        elif key == curses.KEY_DOWN:
+            selected = min(len(entries) - 1, selected + 1)
+        elif key == curses.KEY_PPAGE:
+            selected = max(0, selected - visible)
+        elif key == curses.KEY_NPAGE:
+            selected = min(len(entries) - 1, selected + visible)
+        elif key == curses.KEY_HOME:
+            selected = 0
+        elif key == curses.KEY_END:
+            selected = len(entries) - 1
+        elif key in (10, 13):
+            if entries[selected] == PRESET_PICKER_CUSTOM:
+                return prompt(stdscr, "Preset name or path: ")
+            return entries[selected]
+
+
 def location_label(root: Path, current: Path) -> str:
     try:
         rel = current.relative_to(root)
@@ -554,7 +607,7 @@ def run_action(stdscr, current: Path, selected: int) -> str:
         return "Undone"
 
     if action == "Load Preset":
-        value = prompt(stdscr, "Preset name or path: ")
+        value = preset_picker(stdscr)
         if value is None:
             return "Cancelled"
         if not value:
