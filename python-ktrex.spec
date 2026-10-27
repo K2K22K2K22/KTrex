@@ -1,5 +1,5 @@
 Name:           python-ktrex
-Version:        0.4.0
+Version:        0.4.1
 Release:        1%{?dist}
 Summary:        Interactive terminal-based directory structure builder
 
@@ -50,6 +50,9 @@ rm %{buildroot}%{_bindir}/KTrex
 %{_bindir}/ktrex
 
 %changelog
+* Tue Oct 27 2026 AK <ak@fedoraproject.org> - 0.4.1-1
+- Update to 0.4.1 (preset picker in the TUI)
+
 * Tue Oct 20 2026 AK <ak@fedoraproject.org> - 0.4.0-1
 - Update to 0.4.0 (Windows support and input fixes)
 
